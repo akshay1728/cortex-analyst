@@ -1,0 +1,83 @@
+name: manufacturing_oee_analytics
+description: Semantic model for Manufacturing Overall Equipment Effectiveness (OEE) conversational analytics.
+tables:
+  - name: oee_telemetry
+    description: Fact table containing shift-level manufacturing production and OEE telemetry metrics.
+    columns:
+      - name: date
+        type: DATE
+        description: Date of production run
+      - name: plant
+        type: STRING
+        description: Manufacturing facility name (e.g. Plant Alpha (Detroit), Plant Beta (Austin), Plant Gamma (Stuttgart))
+      - name: line
+        type: STRING
+        description: Specific assembly or production line name
+      - name: shift
+        type: STRING
+        description: Production shift (Shift 1 (Day), Shift 2 (Evening), Shift 3 (Night))
+      - name: product_family
+        type: STRING
+        description: Category family of products being produced
+      - name: product
+        type: STRING
+        description: Product model identifier
+      - name: planned_hours
+        type: NUMBER
+        description: Planned operating hours for shift
+      - name: downtime_hours
+        type: NUMBER
+        description: Unplanned or planned downtime hours in shift
+      - name: operating_hours
+        type: NUMBER
+        description: Actual running time hours (planned_hours - downtime_hours)
+      - name: downtime_reason
+        type: STRING
+        description: Categorized root cause for downtime occurrence
+      - name: target_rate
+        type: NUMBER
+        description: Ideal production rate in units per hour
+      - name: total_units
+        type: NUMBER
+        description: Total units manufactured during shift
+      - name: good_units
+        type: NUMBER
+        description: High quality units passing quality checks
+      - name: reject_units
+        type: NUMBER
+        description: Scrap or defective units produced
+      - name: availability
+        type: NUMBER
+        description: Availability percentage metric (Operating Hours / Planned Hours * 100)
+      - name: performance
+        type: NUMBER
+        description: Performance percentage metric (Total Units / (Operating Hours * Target Rate) * 100)
+      - name: quality
+        type: NUMBER
+        description: Quality percentage metric (Good Units / Total Units * 100)
+      - name: oee
+        type: NUMBER
+        description: Overall Equipment Effectiveness percentage (Availability * Performance * Quality / 10000)
+
+  measures:
+    - name: avg_oee
+      expr: AVG(oee)
+      description: Average OEE percentage across filtered records
+    - name: avg_availability
+      expr: AVG(availability)
+      description: Average availability percentage across filtered records
+    - name: avg_performance
+      expr: AVG(performance)
+      description: Average performance percentage across filtered records
+    - name: avg_quality
+      expr: AVG(quality)
+      description: Average quality percentage across filtered records
+    - name: sum_downtime
+      expr: SUM(downtime_hours)
+      description: Total downtime in hours
+    - name: sum_good_units
+      expr: SUM(good_units)
+      description: Total good units produced
+    - name: sum_reject_units
+      expr: SUM(reject_units)
+      description: Total defective units produced
