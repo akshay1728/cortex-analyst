@@ -2,15 +2,18 @@
 
 Integrates Snowflake Cortex AI (`SNOWFLAKE.CORTEX.COMPLETE` / `cortex.complete`):
 1. Formulates LLM system prompt asking Cortex AI to analyze user question + query data schema/summary.
-2. Invokes Snowflake Cortex AI `cortex.complete('mistral-large', prompt)` or SQL `SNOWFLAKE.CORTEX.COMPLETE(...)` when active Snowflake session exists.
-3. Parses JSON visualization specification returned by Cortex AI model.
-4. Provides robust fallback heuristic decision engine when offline or no Snowflake session is present.
+2. Dynamically loads supported chart types from `config.SUPPORTED_CHART_TYPES`.
+3. Dumps 1 sample data record in prompt for context efficiency.
+4. Invokes Snowflake Cortex AI `cortex.complete('mistral-large', prompt)` or SQL `SNOWFLAKE.CORTEX.COMPLETE(...)`.
+5. Parses JSON visualization specification returned by Cortex AI model.
+6. Provides robust fallback heuristic decision engine when offline or no Snowflake session is present.
 """
 
 import json
 import os
 import pandas as pd
 from typing import Dict, Any, Optional
+from config import SUPPORTED_CHART_TYPES
 
 class CortexAIService:
     def __init__(self, session=None, model_name: str = "mistral-large"):
@@ -50,7 +53,9 @@ class CortexAIService:
 
         # Attempt to use Cortex AI COMPLETE model if Snowflake session available
         if self.session is not None:
-            prompt = self._construct_cortex_prompt(question, cols, data.head(5).to_dict(orient="records"), summary_text)
+            # Dump exactly 1 record as sample context
+            sample_one_record = data.head(1).to_dict(orient="records")
+            prompt = self._construct_cortex_prompt(question, cols, sample_one_record, summary_text)
             response_raw = self.call_cortex_complete(prompt)
             parsed_spec = self._parse_cortex_response(response_raw)
             if parsed_spec:
@@ -115,18 +120,22 @@ class CortexAIService:
             description="Tabular view of queried metrics."
         )
 
-    def _construct_cortex_prompt(self, question: str, columns: list, sample_data: list, summary_text: str) -> str:
-        """Construct prompt for Snowflake Cortex AI COMPLETE."""
+    def _construct_cortex_prompt(self, question: str, columns: list, sample_record: list, summary_text: str) -> str:
+        """Construct prompt for Snowflake Cortex AI COMPLETE using dynamic config chart types and 1 sample record."""
+        allowed_charts_str = "|".join(SUPPORTED_CHART_TYPES)
         return f"""
 System: You are an expert data visualization engineer using Snowflake Cortex AI (`SNOWFLAKE.CORTEX.COMPLETE`).
 User Question: "{question}"
 Data Summary: "{summary_text}"
 Columns: {columns}
-Sample Records: {json.dumps(sample_data)}
+Sample Record (1 Row): {json.dumps(sample_record, default=str)}
 
-Respond ONLY with a valid JSON object specifying the chart configuration:
+Respond ONLY with a valid JSON object specifying the chart configuration.
+The "chart_type" field MUST be one of the following supported types from configuration: [{allowed_charts_str}]
+
+Expected JSON Format:
 {{
-  "chart_type": "line|bar|donut|gauge|table|kpi_card",
+  "chart_type": "<one of {allowed_charts_str}>",
   "title": "<Chart Title>",
   "description": "<Description>",
   "config": {{
