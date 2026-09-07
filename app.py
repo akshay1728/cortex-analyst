@@ -61,6 +61,20 @@ st.caption("Ask natural language questions about plant performance, equipment av
 filters = render_sidebar_filters(df_raw)
 
 st.sidebar.divider()
+st.sidebar.subheader("🎯 OEE Target Benchmarks")
+target_oee = st.sidebar.number_input("Target OEE (%)", min_value=0.0, max_value=100.0, value=85.0, step=1.0)
+target_avail = st.sidebar.number_input("Target Availability (%)", min_value=0.0, max_value=100.0, value=90.0, step=1.0)
+target_perf = st.sidebar.number_input("Target Performance (%)", min_value=0.0, max_value=100.0, value=95.0, step=1.0)
+target_qual = st.sidebar.number_input("Target Quality (%)", min_value=0.0, max_value=100.0, value=99.0, step=1.0)
+
+targets = {
+    "oee": target_oee,
+    "availability": target_avail,
+    "performance": target_perf,
+    "quality": target_qual
+}
+
+st.sidebar.divider()
 debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
 # Filter Dataset according to global sidebar controls
@@ -68,7 +82,7 @@ df_filtered = analyst_service._apply_filters(df_raw, filters)
 
 # Global KPI Cards
 kpis = calculate_aggregated_oee(df_filtered)
-render_kpi_cards(kpis)
+render_kpi_cards(kpis, targets)
 
 st.divider()
 

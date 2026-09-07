@@ -48,8 +48,11 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def render_kpi_cards(kpis: Dict[str, Any]):
-    """Render KPI Metric Cards in top row."""
+def render_kpi_cards(kpis: Dict[str, Any], targets: Dict[str, float] = None):
+    """Render KPI Metric Cards in top row comparing against target thresholds."""
+    if targets is None:
+        targets = {"oee": 85.0, "availability": 90.0, "performance": 95.0, "quality": 99.0}
+
     col1, col2, col3, col4, col5 = st.columns(5)
 
     oee_val = kpis.get("oee", 0.0)
@@ -58,10 +61,15 @@ def render_kpi_cards(kpis: Dict[str, Any]):
     qual_val = kpis.get("quality", 0.0)
     dt_val = kpis.get("total_downtime_hours", 0.0)
 
-    col1.metric("Overall OEE", f"{oee_val:.1f}%", delta=f"{oee_val - 85.0:.1f}% vs Target (85%)")
-    col2.metric("Availability", f"{avail_val:.1f}%", delta=f"{avail_val - 90.0:.1f}% vs Target")
-    col3.metric("Performance", f"{perf_val:.1f}%", delta=f"{perf_val - 95.0:.1f}% vs Target")
-    col4.metric("Quality", f"{qual_val:.1f}%", delta=f"{qual_val - 99.0:.1f}% vs Target")
+    target_oee = targets.get("oee", 85.0)
+    target_avail = targets.get("availability", 90.0)
+    target_perf = targets.get("performance", 95.0)
+    target_qual = targets.get("quality", 99.0)
+
+    col1.metric("Overall OEE", f"{oee_val:.1f}%", delta=f"{oee_val - target_oee:.1f}% vs Target ({target_oee:.0f}%)")
+    col2.metric("Availability", f"{avail_val:.1f}%", delta=f"{avail_val - target_avail:.1f}% vs Target ({target_avail:.0f}%)")
+    col3.metric("Performance", f"{perf_val:.1f}%", delta=f"{perf_val - target_perf:.1f}% vs Target ({target_perf:.0f}%)")
+    col4.metric("Quality", f"{qual_val:.1f}%", delta=f"{qual_val - target_qual:.1f}% vs Target ({target_qual:.0f}%)")
     col5.metric("Downtime Hours", f"{dt_val:.1f} hrs", delta_color="inverse")
 
 
