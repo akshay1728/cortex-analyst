@@ -18,6 +18,7 @@ from config import APP_TITLE, APP_ICON
 from data.sample_data import generate_oee_dataset, calculate_aggregated_oee
 from services.cortex_analyst import CortexAnalystService
 from services.cortex_ai import CortexAIService
+from services.snowflake_connection import get_snowflake_session
 from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions
 from visualization.chart_generator import generate_chart
 
@@ -32,9 +33,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize Smart Snowflake Connection
+snowflake_session = get_snowflake_session()
+
 # Load / Cache Dataset
 @st.cache_data
 def load_dataset():
+    if snowflake_session is not None:
+        try:
+            # Query active Snowflake session if available
+            return snowflake_session.sql("SELECT * FROM OEE_TELEMETRY").to_pandas()
+        except Exception as query_err:
+            logger.warning(f"Snowflake table query failed: {query_err}. Using generated telemetry dataset.")
     return generate_oee_dataset()
 
 df_raw = load_dataset()
