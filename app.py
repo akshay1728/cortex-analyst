@@ -93,7 +93,7 @@ render_sample_questions(submit_question)
 st.write("")
 
 # Render Chat History
-for msg in st.session_state.messages:
+for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
@@ -104,7 +104,7 @@ for msg in st.session_state.messages:
 
         # Display Dynamic Chart if present
         if "figure" in msg and msg["figure"] is not None:
-            st.plotly_chart(msg["figure"], use_container_width=True)
+            st.plotly_chart(msg["figure"], use_container_width=True, key=f"hist_chart_{idx}")
 
         # Display Debug / Developer Expander if enabled
         if debug_mode and "chart_result" in msg and msg["chart_result"]:
@@ -125,7 +125,7 @@ for msg in st.session_state.messages:
         # Display Data Table Tab / View
         if "data" in msg and msg["data"] is not None and not msg["data"].empty:
             with st.expander("📋 View Queried Data Table"):
-                st.dataframe(msg["data"], use_container_width=True)
+                st.dataframe(msg["data"], use_container_width=True, key=f"hist_df_{idx}")
 
 # Handle Chat Input or Sample Question Click
 user_input = st.chat_input("Ask an OEE question (e.g. 'Show OEE trend by plant over time')")
@@ -167,8 +167,9 @@ if prompt:
                 )
 
             # Render Plotly Chart if figure was generated
+            active_idx = len(st.session_state.messages)
             if chart_res.should_visualize and chart_res.figure is not None:
-                st.plotly_chart(chart_res.figure, use_container_width=True)
+                st.plotly_chart(chart_res.figure, use_container_width=True, key=f"active_chart_{active_idx}")
             elif chart_res.should_visualize and not chart_res.is_valid:
                 st.info(f"ℹ️ Unable to generate visualization: {chart_res.error_message or 'Validation error'}")
 
@@ -190,7 +191,7 @@ if prompt:
         # Display Data Table
         if data is not None and not data.empty:
             with st.expander("📋 View Queried Data Table"):
-                st.dataframe(data, use_container_width=True)
+                st.dataframe(data, use_container_width=True, key=f"active_df_{active_idx}")
 
         # Save Assistant Message to Session State
         st.session_state.messages.append({
