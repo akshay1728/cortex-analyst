@@ -38,7 +38,7 @@ class ChartRenderer:
         elif chart_type in ["bar", "grouped_bar", "stacked_bar"]:
             x_col = config.get("x_axis", df.columns[0])
             y_col = config.get("y_axis", df.columns[1] if len(df.columns) > 1 else df.columns[0])
-            color = config.get("primary_color", "#00a86b")
+            color = config.get("primary_color", "#242B6B")
 
             fig = px.bar(
                 df,
@@ -48,6 +48,7 @@ class ChartRenderer:
                 text_auto=".1f",
                 color_discrete_sequence=[color]
             )
+            fig.update_traces(marker_color=color, textfont_color="white")
             fig.update_layout(xaxis_title=x_col, yaxis_title=y_col, margin=dict(l=20, r=20, t=50, b=20))
             return fig
 

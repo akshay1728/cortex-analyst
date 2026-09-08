@@ -63,12 +63,24 @@ def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230
             except Exception as e2:
                 logger.warning(f"pio.to_image with dict failed: {e2}")
 
-        # If fig_obj is a go.Figure or has update_layout, ensure explicit light background
+        # If fig_obj is a go.Figure or has update_layout, sanitize colors & enforce explicit light background
         if hasattr(fig_obj, "update_layout"):
             try:
                 fig_obj.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="#F8F9FE")
-            except Exception:
-                pass
+
+                # Sanitize bar and histogram trace colors so they don't render as black
+                if hasattr(fig_obj, "data"):
+                    for trace in fig_obj.data:
+                        trace_type = getattr(trace, "type", "")
+                        if trace_type in ("bar", "histogram"):
+                            m_color = getattr(trace.marker, "color", None) if hasattr(trace, "marker") else None
+                            # If marker color is black, dark, or unset, override with brand navy blue
+                            if m_color in ("black", "#000000", "#000", "rgb(0,0,0)", "rgb(0, 0, 0)", None):
+                                trace.marker.color = "#242B6B"
+                            if hasattr(trace, "textfont"):
+                                trace.textfont.color = "white"
+            except Exception as e_layout:
+                logger.warning(f"Error sanitizing fig_obj layout colors: {e_layout}")
 
         # Fallback using pio.to_image directly
         if img_bytes is None:
