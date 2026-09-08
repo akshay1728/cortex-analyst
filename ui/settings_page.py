@@ -40,7 +40,7 @@ def render_settings_page():
         st.session_state.settings_custom_logo_bytes = None
 
     # --- Section 1: Target Settings ---
-    with st.expander("🎯 Target Settings", expanded=True):
+    with st.expander("🎯 Target Settings", expanded=False):
         st.markdown("Set global benchmark targets for OEE and core components.")
         col1, col2 = st.columns(2)
         with col1:
@@ -78,7 +78,7 @@ def render_settings_page():
         }
 
     # --- Section 2: Metric Color Selection ---
-    with st.expander("🎨 Metric Colors & Thresholds (Table Highlighting)", expanded=True):
+    with st.expander("🎨 Metric Colors & Thresholds (Table Highlighting)", expanded=False):
         st.markdown(
             "Configure conditional color formatting for table displays. "
             "If a metric value is greater than or equal to the threshold, it will use the **Pass Color**, otherwise the **Fail Color**."
@@ -128,13 +128,13 @@ def render_settings_page():
             st.divider()
 
     # --- Section 3: Logo Settings ---
-    with st.expander("🖼️ Company Logo Settings", expanded=True):
+    with st.expander("🖼️ Company Logo Settings", expanded=False):
         st.markdown("Upload a custom logo to display in the sidebar header and PDF export reports.")
         uploaded_logo = st.file_uploader("Upload Company Logo (PNG / JPG)", type=["png", "jpg", "jpeg"])
 
         if uploaded_logo is not None:
             st.session_state.settings_custom_logo_bytes = uploaded_logo.getvalue()
-            st.success("Custom logo updated successfully!")
+            st.success("Custom logo uploaded successfully!")
             st.image(uploaded_logo, width=150, caption="Preview Uploaded Logo")
         elif st.session_state.settings_custom_logo_bytes is not None:
             st.image(st.session_state.settings_custom_logo_bytes, width=150, caption="Current Custom Logo")
@@ -143,7 +143,7 @@ def render_settings_page():
                 st.rerun()
 
     # --- Section 4: Header & Banner Settings ---
-    with st.expander("🏷️ Header & Banner Text Settings", expanded=True):
+    with st.expander("🏷️ Header & Banner Text Settings", expanded=False):
         st.markdown("Customize the title and subtitle shown on the main page banner.")
         h_title = st.text_input(
             "Banner Title",
@@ -159,4 +159,7 @@ def render_settings_page():
         st.session_state.settings_header_title = h_title
         st.session_state.settings_header_subtitle = h_subtitle
 
-    st.success("Settings automatically saved for this session!")
+    st.write("")
+    if st.button("💾 Save Settings", type="primary"):
+        st.success("Settings saved successfully!")
+        st.rerun()
