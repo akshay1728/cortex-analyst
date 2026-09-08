@@ -38,15 +38,21 @@ def test_style_dataframe_metrics():
         "Quality": [0.99, 0.95]
     })
 
-    metric_colors = {
-        "availability": {"threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-        "quality": {"threshold": 98.0, "pass_color": "#00ff00", "fail_color": "#ff0000"}
+    metric_colors_disabled = {
+        "availability": {"enabled": False, "threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "quality": {"enabled": False, "threshold": 98.0, "pass_color": "#00ff00", "fail_color": "#ff0000"}
     }
 
-    styled = style_dataframe_metrics(df, metric_colors)
-    assert styled is not None
-    assert hasattr(styled, "to_html")
-    html_out = styled.to_html()
-    # Check that colors were generated in styles
-    assert "background-color: #28a745" in html_out
-    assert "background-color: #dc3545" in html_out
+    styled_disabled = style_dataframe_metrics(df, metric_colors_disabled)
+    html_disabled = styled_disabled.to_html()
+    assert "background-color: #28a745" not in html_disabled
+
+    metric_colors_enabled = {
+        "availability": {"enabled": True, "threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "quality": {"enabled": True, "threshold": 98.0, "pass_color": "#00ff00", "fail_color": "#ff0000"}
+    }
+
+    styled_enabled = style_dataframe_metrics(df, metric_colors_enabled)
+    html_enabled = styled_enabled.to_html()
+    assert "background-color: #28a745" in html_enabled
+    assert "background-color: #dc3545" in html_enabled

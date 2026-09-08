@@ -21,10 +21,10 @@ def render_settings_page():
 
     if "settings_colors" not in st.session_state:
         st.session_state.settings_colors = {
-            "oee": {"threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-            "availability": {"threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-            "performance": {"threshold": 95.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-            "quality": {"threshold": 99.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+            "oee": {"enabled": False, "threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+            "availability": {"enabled": False, "threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+            "performance": {"enabled": False, "threshold": 95.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+            "quality": {"enabled": False, "threshold": 99.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
         }
 
     if "settings_header_title" not in st.session_state:
@@ -81,7 +81,7 @@ def render_settings_page():
     with st.expander("🎨 Metric Colors & Thresholds (Table Highlighting)", expanded=False):
         st.markdown(
             "Configure conditional color formatting for table displays. "
-            "If a metric value is greater than or equal to the threshold, it will use the **Pass Color**, otherwise the **Fail Color**."
+            "By default, metric color highlighting is disabled. Toggle to enable for each metric."
         )
 
         metrics_list = [
@@ -93,34 +93,38 @@ def render_settings_page():
 
         for m_key, m_label, default_thresh in metrics_list:
             curr_cfg = st.session_state.settings_colors.get(m_key, {
+                "enabled": False,
                 "threshold": default_thresh,
                 "pass_color": "#28a745",
                 "fail_color": "#dc3545"
             })
 
             st.markdown(f"#### {m_label}")
+            m_enabled = st.toggle(f"Enable color highlighting for {m_label}", value=curr_cfg.get("enabled", False), key=f"color_enable_{m_key}")
+
             c1, c2, c3 = st.columns(3)
             with c1:
                 thresh_val = st.number_input(
                     f"Threshold for {m_label}",
                     min_value=0.0, max_value=100.0,
-                    value=float(curr_cfg["threshold"]),
+                    value=float(curr_cfg.get("threshold", default_thresh)),
                     key=f"color_thresh_{m_key}"
                 )
             with c2:
                 pass_col = st.color_picker(
                     f"Color if ≥ {thresh_val}%",
-                    value=curr_cfg["pass_color"],
+                    value=curr_cfg.get("pass_color", "#28a745"),
                     key=f"color_pass_{m_key}"
                 )
             with c3:
                 fail_col = st.color_picker(
                     f"Color if < {thresh_val}%",
-                    value=curr_cfg["fail_color"],
+                    value=curr_cfg.get("fail_color", "#dc3545"),
                     key=f"color_fail_{m_key}"
                 )
 
             st.session_state.settings_colors[m_key] = {
+                "enabled": m_enabled,
                 "threshold": thresh_val,
                 "pass_color": pass_col,
                 "fail_color": fail_col

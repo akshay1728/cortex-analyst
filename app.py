@@ -93,10 +93,10 @@ if "settings_targets" not in st.session_state:
 
 if "settings_colors" not in st.session_state:
     st.session_state.settings_colors = {
-        "oee": {"threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-        "availability": {"threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-        "performance": {"threshold": 95.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-        "quality": {"threshold": 99.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "oee": {"enabled": False, "threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "availability": {"enabled": False, "threshold": 75.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "performance": {"enabled": False, "threshold": 95.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "quality": {"enabled": False, "threshold": 99.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
     }
 
 if "settings_header_title" not in st.session_state:
@@ -248,7 +248,7 @@ st.markdown(f"""
 
     hr {{ border-color: {BRAND['border']}; }}
 
-    .stButton > button {{
+    .stButton > button, .stDownloadButton > button {{
         border-radius: 10px !important;
         border: 1px solid {BRAND['border']} !important;
         background: {BRAND['card']} !important;
@@ -258,7 +258,7 @@ st.markdown(f"""
         box-shadow: 0 4px 10px -4px rgba({BRAND['shadow']}, 0.14) !important;
         transition: all 0.18s ease !important;
     }}
-    .stButton > button:hover {{
+    .stButton > button:hover, .stDownloadButton > button:hover {{
         background: linear-gradient(120deg, {BRAND['navy']}, {BRAND['navy_light']}) !important;
         color: #FFFFFF !important;
         border-color: {BRAND['navy']} !important;
@@ -364,6 +364,27 @@ nav_selection = st.sidebar.radio(
 
 st.sidebar.divider()
 
+# PDF Export in Sidebar for easy access
+if "messages" in st.session_state and len(st.session_state.messages) > 0:
+    try:
+        sb_pdf_bytes = generate_conversation_pdf(
+            messages=st.session_state.messages,
+            logo_bytes=active_logo_bytes,
+            title=st.session_state.settings_header_title,
+            subtitle=st.session_state.settings_header_subtitle
+        )
+        st.sidebar.download_button(
+            label="📄 Download Conversation (PDF)",
+            data=sb_pdf_bytes,
+            file_name="OEE_Conversation_Report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="sidebar_pdf_btn"
+        )
+        st.sidebar.divider()
+    except Exception as pdf_err:
+        logger.error(f"Sidebar PDF generation error: {pdf_err}")
+
 # --------------------------------------------------------------------------
 # Render Dynamic Banner Header
 # --------------------------------------------------------------------------
@@ -467,7 +488,7 @@ else:
     st.write("")
 
     # Header row for Conversation with PDF Download Button
-    col_title, col_pdf = st.columns([3, 1])
+    col_title, col_pdf = st.columns([2.5, 1.5])
     with col_title:
         st.markdown('<div class="section-label">💬 Conversation</div>', unsafe_allow_html=True)
     with col_pdf:
@@ -485,7 +506,8 @@ else:
                     data=pdf_bytes,
                     file_name="OEE_Conversation_Report.pdf",
                     mime="application/pdf",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="main_pdf_btn"
                 )
             except Exception as pdf_err:
                 logger.error(f"Error generating PDF: {pdf_err}")

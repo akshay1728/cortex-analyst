@@ -97,7 +97,7 @@ def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
 
     `metric_colors` format:
     {
-        "oee": {"threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "oee": {"enabled": False, "threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
         "availability": ...
     }
     """
@@ -115,6 +115,9 @@ def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
     styled = df.style
 
     for m_key, color_cfg in metric_colors.items():
+        if not color_cfg.get("enabled", False):
+            continue
+
         thresh = float(color_cfg.get("threshold", 85.0))
         pass_col = color_cfg.get("pass_color", "#28a745")
         fail_col = color_cfg.get("fail_color", "#dc3545")
@@ -132,7 +135,6 @@ def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
             def cell_styler(val, threshold=thresh, pass_c=pass_col, fail_c=fail_col):
                 try:
                     num_val = float(val)
-                    # Convert fraction <= 1.0 to percentage if threshold is > 1
                     if num_val <= 1.0 and threshold > 1.0:
                         num_val = num_val * 100.0
                     bg_color = pass_c if num_val >= threshold else fail_c
