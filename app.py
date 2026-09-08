@@ -111,6 +111,15 @@ if "settings_header_subtitle" not in st.session_state:
 if "settings_custom_logo_bytes" not in st.session_state:
     st.session_state.settings_custom_logo_bytes = None
 
+# Initialize Session State for Chat History early
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Hello! I am your **Manufacturing OEE Conversational Assistant**. Ask me anything about OEE, availability, performance, downtime reasons, or production volume across your plants and lines!"
+        }
+    ]
+
 # --------------------------------------------------------------------------
 # Global Custom CSS Theme
 # --------------------------------------------------------------------------
@@ -364,27 +373,6 @@ nav_selection = st.sidebar.radio(
 
 st.sidebar.divider()
 
-# PDF Export in Sidebar for easy access
-if "messages" in st.session_state and len(st.session_state.messages) > 0:
-    try:
-        sb_pdf_bytes = generate_conversation_pdf(
-            messages=st.session_state.messages,
-            logo_bytes=active_logo_bytes,
-            title=st.session_state.settings_header_title,
-            subtitle=st.session_state.settings_header_subtitle
-        )
-        st.sidebar.download_button(
-            label="📄 Download Conversation (PDF)",
-            data=sb_pdf_bytes,
-            file_name="OEE_Conversation_Report.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key="sidebar_pdf_btn"
-        )
-        st.sidebar.divider()
-    except Exception as pdf_err:
-        logger.error(f"Sidebar PDF generation error: {pdf_err}")
-
 # --------------------------------------------------------------------------
 # Render Dynamic Banner Header
 # --------------------------------------------------------------------------
@@ -446,16 +434,6 @@ else:
     st.sidebar.divider()
     debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
-    st.sidebar.markdown(
-        f"""
-        <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid {BRAND['border']};
-                    font-size: 0.75rem; color: {BRAND['muted']}; text-align:center;">
-            Manufacturing Analytics Assistant<br/>Built on Snowflake Cortex
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # Filter Dataset
     df_filtered = analyst_service._apply_filters(df_raw, filters)
 
@@ -465,15 +443,6 @@ else:
     render_kpi_cards(kpis, st.session_state.settings_targets)
 
     st.divider()
-
-    # Session State for Chat History
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": "Hello! I am your **Manufacturing OEE Conversational Assistant**. Ask me anything about OEE, availability, performance, downtime reasons, or production volume across your plants and lines!"
-            }
-        ]
 
     if "pending_question" not in st.session_state:
         st.session_state.pending_question = None
@@ -487,30 +456,8 @@ else:
 
     st.write("")
 
-    # Header row for Conversation with PDF Download Button
-    col_title, col_pdf = st.columns([2.5, 1.5])
-    with col_title:
-        st.markdown('<div class="section-label">💬 Conversation</div>', unsafe_allow_html=True)
-    with col_pdf:
-        st.write("")
-        if st.session_state.messages:
-            try:
-                pdf_bytes = generate_conversation_pdf(
-                    messages=st.session_state.messages,
-                    logo_bytes=active_logo_bytes,
-                    title=st.session_state.settings_header_title,
-                    subtitle=st.session_state.settings_header_subtitle
-                )
-                st.download_button(
-                    label="📄 Download Conversation (PDF)",
-                    data=pdf_bytes,
-                    file_name="OEE_Conversation_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="main_pdf_btn"
-                )
-            except Exception as pdf_err:
-                logger.error(f"Error generating PDF: {pdf_err}")
+    # Conversation Section Header
+    st.markdown('<div class="section-label">💬 Conversation</div>', unsafe_allow_html=True)
 
     ASSISTANT_AVATAR = "🤖"
     USER_AVATAR = "🧑‍🏭"
@@ -633,3 +580,38 @@ else:
                 "figure": chart_res.figure if chart_res else None,
                 "chart_result": chart_res
             })
+
+# --------------------------------------------------------------------------
+# Render Sidebar PDF Export & Footer (Placed AFTER chat input execution)
+# --------------------------------------------------------------------------
+with st.sidebar:
+    if "messages" in st.session_state and len(st.session_state.messages) > 0:
+        st.divider()
+        st.markdown("### 📥 Export Conversation")
+        try:
+            sb_pdf_bytes = generate_conversation_pdf(
+                messages=st.session_state.messages,
+                logo_bytes=active_logo_bytes,
+                title=st.session_state.settings_header_title,
+                subtitle=st.session_state.settings_header_subtitle
+            )
+            st.download_button(
+                label="📄 Download Conversation (PDF)",
+                data=sb_pdf_bytes,
+                file_name="OEE_Conversation_Report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="sidebar_pdf_btn"
+            )
+        except Exception as pdf_err:
+            logger.error(f"Sidebar PDF generation error: {pdf_err}")
+
+    st.markdown(
+        f"""
+        <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid {BRAND['border']};
+                    font-size: 0.75rem; color: {BRAND['muted']}; text-align:center;">
+            Manufacturing Analytics Assistant<br/>Built on Snowflake Cortex
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
