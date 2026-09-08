@@ -90,3 +90,56 @@ def render_sample_questions(on_click_callback):
     for idx, q in enumerate(sample_questions):
         if cols[idx % 3].button(q, key=f"sq_{idx}", use_container_width=True):
             on_click_callback(q)
+
+
+def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
+    """Apply background color styling to DataFrame columns matching metric thresholds.
+
+    `metric_colors` format:
+    {
+        "oee": {"threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
+        "availability": ...
+    }
+    """
+    if df is None or df.empty:
+        return df
+
+    # Normalize column mapping
+    metric_aliases = {
+        "oee": ["oee", "oee_pct", "oee_percentage", "overall_oee"],
+        "availability": ["availability", "avail", "availability_pct", "availability_percentage"],
+        "performance": ["performance", "perf", "performance_pct", "performance_percentage"],
+        "quality": ["quality", "qual", "quality_pct", "quality_percentage"]
+    }
+
+    styled = df.style
+
+    for m_key, color_cfg in metric_colors.items():
+        thresh = float(color_cfg.get("threshold", 85.0))
+        pass_col = color_cfg.get("pass_color", "#28a745")
+        fail_col = color_cfg.get("fail_color", "#dc3545")
+
+        aliases = metric_aliases.get(m_key, [m_key])
+
+        # Find matching columns in DataFrame (case-insensitive substring or exact match)
+        matched_cols = []
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if any(alias in col_lower for alias in aliases):
+                matched_cols.append(col)
+
+        for col in matched_cols:
+            def cell_styler(val, threshold=thresh, pass_c=pass_col, fail_c=fail_col):
+                try:
+                    num_val = float(val)
+                    # Convert fraction <= 1.0 to percentage if threshold is > 1
+                    if num_val <= 1.0 and threshold > 1.0:
+                        num_val = num_val * 100.0
+                    bg_color = pass_c if num_val >= threshold else fail_c
+                    return f'background-color: {bg_color}; color: white; font-weight: bold;'
+                except (ValueError, TypeError):
+                    return ''
+
+            styled = styled.map(cell_styler, subset=[col])
+
+    return styled
