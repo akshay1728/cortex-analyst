@@ -8,6 +8,9 @@ from datetime import datetime
 import pandas as pd
 from PIL import Image as PILImage
 
+import plotly.graph_objects as go
+import plotly.io as pio
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import (
@@ -37,18 +40,55 @@ def _markdown_to_reportlab_html(text: str) -> str:
     return formatted
 
 
-def _convert_figure_to_rl_image(fig, width: float = 480, height: float = 240) -> RLImage:
-    """Convert a Plotly figure object into a ReportLab Image flowable."""
-    if fig is None:
+def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230) -> RLImage:
+    """Convert any Plotly figure representation (Figure, dict, json) into a ReportLab Image flowable."""
+    if fig_obj is None:
         return None
+
+    img_bytes = None
+
     try:
-        # Convert plotly figure to PNG bytes
-        img_bytes = fig.to_image(format="png", width=700, height=350, scale=2)
+        # If it's already a Plotly Figure or has to_image
+        if hasattr(fig_obj, "to_image"):
+            try:
+                img_bytes = fig_obj.to_image(format="png", width=750, height=360, scale=2)
+            except Exception as e1:
+                logger.warning(f"Direct fig_obj.to_image failed: {e1}")
+
+        # If it's a dict or couldn't call to_image directly
+        if img_bytes is None and isinstance(fig_obj, dict):
+            try:
+                fig = go.Figure(fig_obj)
+                img_bytes = pio.to_image(fig, format="png", width=750, height=360, scale=2)
+            except Exception as e2:
+                logger.warning(f"pio.to_image with dict failed: {e2}")
+
+        # Fallback using pio.to_image directly
+        if img_bytes is None:
+            try:
+                img_bytes = pio.to_image(fig_obj, format="png", width=750, height=360, scale=2)
+            except Exception as e3:
+                logger.warning(f"Fallback pio.to_image failed: {e3}")
+
         if img_bytes:
+            # Normalize RGBA to RGB for maximum ReportLab PDF renderer compatibility
+            pil_img = PILImage.open(io.BytesIO(img_bytes))
+            if pil_img.mode in ("RGBA", "LA", "P"):
+                rgb_img = PILImage.new("RGB", pil_img.size, (255, 255, 255))
+                if pil_img.mode == "RGBA":
+                    rgb_img.paste(pil_img, mask=pil_img.split()[3])
+                else:
+                    rgb_img.paste(pil_img)
+                out_buf = io.BytesIO()
+                rgb_img.save(out_buf, format="PNG")
+                img_bytes = out_buf.getvalue()
+
             img_buf = io.BytesIO(img_bytes)
             return RLImage(img_buf, width=width, height=height)
+
     except Exception as e:
-        logger.warning(f"Could not convert Plotly figure to PNG for PDF: {e}")
+        logger.error(f"Error rendering chart to image for PDF: {e}")
+
     return None
 
 
@@ -184,7 +224,6 @@ def generate_conversation_pdf(
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#E4E7F3'), spaceAfter=12))
 
     # --- Conversation Body ---
-    # Top-level flowables are added directly so ReportLab can split content naturally across pages
     for idx, msg in enumerate(messages):
         role = msg.get("role", "user")
         content = msg.get("content", "")
@@ -241,13 +280,17 @@ def generate_conversation_pdf(
                 elements.append(sql_table)
                 elements.append(Spacer(1, 6))
 
-            # Chart Visualization Block
+            # Chart Visualization Block - extract figure from figure or chart_result
             fig = msg.get("figure")
-            if fig is None and msg.get("chart_result") and getattr(msg["chart_result"], "figure", None) is not None:
-                fig = msg["chart_result"].figure
+            if fig is None and "chart_result" in msg and msg["chart_result"]:
+                chart_res = msg["chart_result"]
+                if hasattr(chart_res, "figure"):
+                    fig = chart_res.figure
+                elif isinstance(chart_res, dict) and "figure" in chart_res:
+                    fig = chart_res["figure"]
 
             if fig is not None:
-                rl_chart_img = _convert_figure_to_rl_image(fig, width=480, height=220)
+                rl_chart_img = _convert_figure_to_rl_image(fig, width=480, height=230)
                 if rl_chart_img:
                     chart_title = Paragraph("<b>📊 Visualization Chart:</b>", meta_style)
                     chart_table = Table([[chart_title], [Spacer(1, 4)], [rl_chart_img]], colWidths=[540])
