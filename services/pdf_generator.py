@@ -63,6 +63,13 @@ def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230
             except Exception as e2:
                 logger.warning(f"pio.to_image with dict failed: {e2}")
 
+        # If fig_obj is a go.Figure or has update_layout, ensure explicit light background
+        if hasattr(fig_obj, "update_layout"):
+            try:
+                fig_obj.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="#F8F9FE")
+            except Exception:
+                pass
+
         # Fallback using pio.to_image directly
         if img_bytes is None:
             try:
@@ -71,17 +78,18 @@ def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230
                 logger.warning(f"Fallback pio.to_image failed: {e3}")
 
         if img_bytes:
-            # Normalize RGBA to RGB for maximum ReportLab PDF renderer compatibility
+            # Composite RGBA image over clean solid white RGB canvas to preserve vibrant colors
             pil_img = PILImage.open(io.BytesIO(img_bytes))
-            if pil_img.mode in ("RGBA", "LA", "P"):
-                rgb_img = PILImage.new("RGB", pil_img.size, (255, 255, 255))
-                if pil_img.mode == "RGBA":
-                    rgb_img.paste(pil_img, mask=pil_img.split()[3])
-                else:
-                    rgb_img.paste(pil_img)
-                out_buf = io.BytesIO()
-                rgb_img.save(out_buf, format="PNG")
-                img_bytes = out_buf.getvalue()
+            rgb_canvas = PILImage.new("RGB", pil_img.size, (255, 255, 255))
+            if pil_img.mode in ("RGBA", "LA"):
+                alpha = pil_img.split()[-1]
+                rgb_canvas.paste(pil_img, mask=alpha)
+            else:
+                rgb_canvas.paste(pil_img.convert("RGB"))
+
+            out_buf = io.BytesIO()
+            rgb_canvas.save(out_buf, format="PNG")
+            img_bytes = out_buf.getvalue()
 
             img_buf = io.BytesIO(img_bytes)
             return RLImage(img_buf, width=width, height=height)
