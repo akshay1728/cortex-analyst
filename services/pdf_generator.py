@@ -1,6 +1,8 @@
 """PDF Generator Service for Manufacturing OEE Application."""
 
 import io
+import re
+import html
 from datetime import datetime
 import pandas as pd
 from PIL import Image as PILImage
@@ -9,6 +11,25 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+
+def _markdown_to_reportlab_html(text: str) -> str:
+    """Helper to convert markdown string to ReportLab compatible HTML."""
+    if not text:
+        return ""
+    # 1. Escape HTML XML entities first
+    escaped = html.escape(str(text))
+
+    # 2. Convert **bold** to <b>bold</b>
+    formatted = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped, flags=re.DOTALL)
+
+    # 3. Convert *italic* or _italic_ to <i>italic</i>
+    formatted = re.sub(r'\*(.*?)\*', r'<i>\1</i>', formatted, flags=re.DOTALL)
+
+    # 4. Convert newlines to <br/>
+    formatted = formatted.replace('\n', '<br/>')
+
+    return formatted
 
 
 def generate_conversation_pdf(
@@ -106,7 +127,6 @@ def generate_conversation_pdf(
     elements = []
 
     # --- Header Section (Logo + Title + Meta) ---
-    header_data = []
     logo_img = None
     if logo_bytes:
         try:
@@ -122,9 +142,9 @@ def generate_conversation_pdf(
     download_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     header_text_elements = [
-        Paragraph(title, title_style),
+        Paragraph(_markdown_to_reportlab_html(title), title_style),
         Spacer(1, 4),
-        Paragraph(subtitle, subtitle_style),
+        Paragraph(_markdown_to_reportlab_html(subtitle), subtitle_style),
         Spacer(1, 6),
         Paragraph(f"<b>Downloaded Date:</b> {download_date_str}", meta_style)
     ]
@@ -148,12 +168,10 @@ def generate_conversation_pdf(
         role = msg.get("role", "user")
         content = msg.get("content", "")
 
-        # Clean basic markdown bold formatting for ReportLab paragraph tags
-        clean_content = content.replace("**", "<b>").replace("**", "</b>") if content else ""
-        clean_content = clean_content.replace("\n", "<br/>")
+        clean_content = _markdown_to_reportlab_html(content)
 
         if role == "user":
-            role_p = Paragraph("<b>🧑‍🏭 User</b>", meta_style)
+            role_p = Paragraph("<b>User</b>", meta_style)
             msg_p = Paragraph(clean_content, user_bubble_style)
             card_table = Table([[role_p], [Spacer(1, 4)], [msg_p]], colWidths=[540])
             card_table.setStyle(TableStyle([
@@ -169,7 +187,7 @@ def generate_conversation_pdf(
             elements.append(Spacer(1, 10))
 
         else:
-            role_p = Paragraph("<b>🤖 Assistant</b>", meta_style)
+            role_p = Paragraph("<b>Assistant</b>", meta_style)
             msg_p = Paragraph(clean_content, assistant_bubble_style)
             inner_elements = [role_p, Spacer(1, 4), msg_p]
 
@@ -177,7 +195,7 @@ def generate_conversation_pdf(
             if sql_query:
                 inner_elements.append(Spacer(1, 6))
                 inner_elements.append(Paragraph("<b>Generated SQL Query:</b>", meta_style))
-                sql_clean = sql_query.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+                sql_clean = html.escape(str(sql_query)).replace("\n", "<br/>")
                 inner_elements.append(Paragraph(sql_clean, code_style))
 
             data = msg.get("data")
@@ -188,13 +206,13 @@ def generate_conversation_pdf(
                 # Format dataframe for PDF table
                 df_subset = data.head(15)  # Limit rows for PDF layout
                 cols = list(df_subset.columns)
-                table_rows = [[Paragraph(str(c), table_header_style) for c in cols]]
+                table_rows = [[Paragraph(html.escape(str(c)), table_header_style) for c in cols]]
 
                 for _, row in df_subset.iterrows():
                     row_cells = []
                     for val in row:
                         val_str = f"{val:.2f}" if isinstance(val, (float, int)) and not isinstance(val, bool) else str(val)
-                        row_cells.append(Paragraph(val_str, table_cell_style))
+                        row_cells.append(Paragraph(html.escape(val_str), table_cell_style))
                     table_rows.append(row_cells)
 
                 # Calculate col widths
