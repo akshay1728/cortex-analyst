@@ -6,14 +6,18 @@ from typing import Dict, Any, List
 from data.sample_data import calculate_aggregated_oee
 
 def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
-    """Render sidebar filters and return user selected options."""
-    st.sidebar.header("🔍 OEE Global Filters")
+    """Render sidebar filters and return user selected options.
 
+    Uses relative `st.xxx(...)` calls (not `st.sidebar.xxx(...)`) so this
+    renders correctly whichever container it's called from — including the
+    "🧭 Filters" expander in app.py. Calling `st.sidebar.xxx` explicitly here
+    would always target the sidebar directly and skip that expander.
+    """
     # Date Range Filter
     min_date = df["date"].min().date()
     max_date = df["date"].max().date()
 
-    date_range = st.sidebar.date_input(
+    date_range = st.date_input(
         "Date Range",
         value=(min_date, max_date),
         min_value=min_date,
@@ -22,22 +26,19 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
 
     # Plant Filter
     available_plants = ["All"] + sorted(list(df["plant"].unique()))
-    selected_plants = st.sidebar.multiselect("Select Plant(s)", options=available_plants, default=["All"])
+    selected_plants = st.multiselect("Select Plant(s)", options=available_plants, default=["All"])
 
     # Line Filter
     available_lines = ["All"] + sorted(list(df["line"].unique()))
-    selected_lines = st.sidebar.multiselect("Select Line(s)", options=available_lines, default=["All"])
+    selected_lines = st.multiselect("Select Line(s)", options=available_lines, default=["All"])
 
     # Shift Filter
     available_shifts = ["All"] + sorted(list(df["shift"].unique()))
-    selected_shifts = st.sidebar.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
+    selected_shifts = st.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
 
     # Product Family Filter
     available_families = ["All"] + sorted(list(df["product_family"].unique()))
-    selected_families = st.sidebar.multiselect("Product Family", options=available_families, default=["All"])
-
-    st.sidebar.divider()
-    st.sidebar.caption("⚡ Powered by Snowflake Cortex Analyst & AI")
+    selected_families = st.multiselect("Product Family", options=available_families, default=["All"])
 
     return {
         "date_range": date_range,
