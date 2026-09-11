@@ -36,22 +36,40 @@ from data.sample_data import generate_oee_dataset
 logger = logging.getLogger("cortex_agent_service")
 
 
-def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
-    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls."""
-    try:
-        session = get_snowflake_session()
-        snowflake_host = st.secrets.get("SNOWFLAKE_HOST") if hasattr(st, "secrets") else None
+import os
 
+def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
+    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls.
+
+    Supports:
+    1. Container Runtime native OAuth token mounted at /snowflake/session/token.
+    2. Environment variable SNOWFLAKE_HOST or st.secrets["SNOWFLAKE_HOST"].
+    3. Snowpark session token fallback.
+    """
+    try:
+        snowflake_host = os.environ.get("SNOWFLAKE_HOST")
+        if not snowflake_host and hasattr(st, "secrets"):
+            snowflake_host = st.secrets.get("SNOWFLAKE_HOST")
+
+        session = get_snowflake_session()
         if not snowflake_host and session is not None:
-            # Extract host from session connection parameters if available
             try:
-                conn_params = session.connection.rest.host
-                snowflake_host = conn_params
+                snowflake_host = session.connection.rest.host
             except Exception:
                 pass
 
         token = None
-        if session is not None:
+        # Path 1: Container Runtime Native OAuth Token File
+        token_path = "/snowflake/session/token"
+        if os.path.exists(token_path):
+            try:
+                with open(token_path, "r") as f:
+                    token = f.read().strip()
+            except Exception as e:
+                logger.warning(f"Unable to read container token at {token_path}: {e}")
+
+        # Path 2: Snowpark session token fallback
+        if not token and session is not None:
             try:
                 token = session.connection.rest.token
             except Exception:
