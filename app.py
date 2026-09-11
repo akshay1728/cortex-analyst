@@ -21,13 +21,11 @@ import numpy as np
 
 from config import APP_TITLE, APP_ICON
 from data.sample_data import generate_oee_dataset, calculate_aggregated_oee
-from services.cortex_analyst import CortexAnalystService
-from services.cortex_ai import CortexAIService
+from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
-from visualization.chart_generator import generate_chart
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("oee_streamlit_app")
@@ -116,7 +114,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Hello! I am your **Manufacturing OEE Conversational Assistant**. Ask me anything about OEE, availability, performance, downtime reasons, or production volume across your plants and lines!"
+            "display": "Hello! I am your **Manufacturing OEE Conversational Assistant**. Ask me anything about OEE, availability, performance, downtime reasons, or production volume across your plants and lines!",
+            "content": [{"type": "text", "text": "Hello! I am your Manufacturing OEE Conversational Assistant. Ask me anything about OEE, availability, performance, downtime reasons, or production volume across your plants and lines!"}]
         }
     ]
 
@@ -466,9 +465,19 @@ else:
     assistant_indices = [i for i, m in enumerate(st.session_state.messages) if m["role"] == "assistant"]
     latest_assistant_idx = assistant_indices[-1] if assistant_indices else None
 
+    def _get_display_str(msg_obj: dict) -> str:
+        if "display" in msg_obj and isinstance(msg_obj["display"], str):
+            return msg_obj["display"]
+        content = msg_obj.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return " ".join([item.get("text", "") for item in content if isinstance(item, dict) and item.get("type") == "text"])
+        return str(content)
+
     def _response_label(idx: int) -> str:
         if idx > 0 and st.session_state.messages[idx - 1]["role"] == "user":
-            q = st.session_state.messages[idx - 1]["content"].strip()
+            q = _get_display_str(st.session_state.messages[idx - 1]).strip()
             preview = q[:60] + ("…" if len(q) > 60 else "")
             return f"💬 {preview}"
         return "💬 Assistant response"
@@ -476,40 +485,47 @@ else:
     for idx, msg in enumerate(st.session_state.messages):
         avatar = ASSISTANT_AVATAR if msg["role"] == "assistant" else USER_AVATAR
         with st.chat_message(msg["role"], avatar=avatar):
+            disp_text = _get_display_str(msg)
             if msg["role"] != "assistant":
-                st.markdown(msg["content"])
+                st.markdown(disp_text)
                 continue
 
             is_latest = (idx == latest_assistant_idx)
             with st.expander(_response_label(idx), expanded=is_latest):
-                st.markdown(msg["content"])
+                main_msg, suggestions = split_suggestions(disp_text)
+                if main_msg:
+                    st.markdown(main_msg)
 
                 if "sql_query" in msg and msg["sql_query"]:
                     st.markdown("**🛠️ Cortex Analyst Generated SQL Query**")
                     st.code(msg["sql_query"], language="sql")
 
-                if "figure" in msg and msg["figure"] is not None:
-                    st.plotly_chart(msg["figure"], use_container_width=True, key=f"hist_chart_{idx}")
+                if "blocks" in msg and isinstance(msg["blocks"], list):
+                    last_df = msg.get("data")
+                    for b_idx, b in enumerate(msg["blocks"]):
+                        if b.get("type") == "chart":
+                            st.markdown("**📊 Visualization Chart**")
+                            render_chart(b.get("spec"), last_df, key=f"hist_cortex_chart_{idx}_{b_idx}")
+                        elif b.get("type") == "tool_results":
+                            tool_df = tool_results_to_df(b.get("content"))
+                            if tool_df is not None and not tool_df.empty:
+                                last_df = tool_df
+                                st.markdown("**📋 Queried Data Table**")
+                                styled_df = style_dataframe_metrics(tool_df, st.session_state.settings_colors)
+                                st.dataframe(styled_df, use_container_width=True, key=f"hist_tool_df_{idx}_{b_idx}")
 
-                if debug_mode and "chart_result" in msg and msg["chart_result"]:
-                    res = msg["chart_result"]
-                    st.markdown("**🔍 Debug: Dynamic Chart Generation Details**")
-                    st.json({
-                        "should_visualize": res.should_visualize,
-                        "chart_type": res.chart_type,
-                        "reasoning": res.reasoning,
-                        "validation_status": res.validation_status,
-                        "is_valid": res.is_valid,
-                        "error_message": res.error_message
-                    })
-                    if res.python_code:
-                        st.markdown("**Generated Python Code:**")
-                        st.code(res.python_code, language="python")
-
-                if "data" in msg and msg["data"] is not None and not msg["data"].empty:
+                elif "data" in msg and msg["data"] is not None and not msg["data"].empty:
                     st.markdown("**📋 Queried Data Table**")
                     styled_df = style_dataframe_metrics(msg["data"], st.session_state.settings_colors)
                     st.dataframe(styled_df, use_container_width=True, key=f"hist_df_{idx}")
+
+                if suggestions:
+                    st.markdown("**💡 Suggested Follow-ups:**")
+                    s_cols = st.columns(min(len(suggestions), 3))
+                    for s_i, sug in enumerate(suggestions):
+                        c_idx = s_i % len(s_cols)
+                        if s_cols[c_idx].button(f"🔍 {sug}", key=f"hist_sug_{idx}_{s_i}"):
+                            submit_question(sug)
 
     # Handle Chat Input or Sample Question Click
     user_input = st.chat_input("Ask an OEE question (e.g. 'Show OEE trend by plant over time')")
@@ -518,67 +534,59 @@ else:
     if prompt:
         st.session_state.pending_question = None
 
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.messages.append({
+            "role": "user",
+            "display": prompt,
+            "content": [{"type": "text", "text": prompt}]
+        })
         with st.chat_message("user", avatar=USER_AVATAR):
             st.markdown(prompt)
 
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-            with st.spinner("🤖 Cortex Analyst parsing question & querying structured data..."):
-                analyst_res = analyst_service.process_question(prompt, filters)
-
-            summary_text = analyst_res.get("summary_text", "")
-            data = analyst_res.get("data")
-
             preview = prompt.strip()[:60] + ("…" if len(prompt.strip()) > 60 else "")
             with st.expander(f"💬 {preview}", expanded=True):
-                st.markdown(summary_text)
+                with st.spinner("🤖 Calling Cortex Agent..."):
+                    api_messages = [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.messages
+                    ]
+                    events = call_agent(api_messages)
+                    blocks = collect_response(events)
 
-                if analyst_res.get("sql_query"):
-                    st.markdown("**🛠️ Cortex Analyst Generated SQL Query**")
-                    st.code(analyst_res["sql_query"], language="sql")
+                latest_df = None
+                display_text = ""
+                active_idx = len(st.session_state.messages)
 
-                chart_res = None
-                if data is not None and not data.empty:
-                    with st.spinner("🎨 Dynamic Visualization Planner generating and validating chart code..."):
-                        chart_res = generate_chart(
-                            question=prompt,
-                            dataframe=data,
-                            cortex_ai_service=cortex_ai_service,
-                            analyst_summary=summary_text
-                        )
+                for b_idx, b in enumerate(blocks):
+                    if b["type"] == "text":
+                        display_text += b["text"]
+                        main_t, sug_list = split_suggestions(b["text"])
+                        st.markdown(main_t)
+                    elif b["type"] == "tool_results":
+                        latest_df = tool_results_to_df(b["content"])
+                        if latest_df is not None and not latest_df.empty:
+                            st.markdown("**📋 Queried Data Table**")
+                            styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
+                            st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
+                    elif b["type"] == "chart":
+                        st.markdown("**📊 Visualization Chart**")
+                        render_chart(b["spec"], latest_df, key=f"act_chart_{active_idx}_{b_idx}")
 
-                    active_idx = len(st.session_state.messages)
-                    if chart_res.should_visualize and chart_res.figure is not None:
-                        st.plotly_chart(chart_res.figure, use_container_width=True, key=f"active_chart_{active_idx}")
-                    elif chart_res.should_visualize and not chart_res.is_valid:
-                        st.info(f"ℹ️ Unable to generate visualization: {chart_res.error_message or 'Validation error'}")
-
-                    if debug_mode and chart_res:
-                        st.markdown("**🔍 Debug: Dynamic Chart Generation Details**")
-                        st.json({
-                            "should_visualize": chart_res.should_visualize,
-                            "chart_type": chart_res.chart_type,
-                            "reasoning": chart_res.reasoning,
-                            "validation_status": chart_res.validation_status,
-                            "is_valid": chart_res.is_valid,
-                            "error_message": chart_res.error_message
-                        })
-                        if chart_res.python_code:
-                            st.markdown("**Generated Python Code:**")
-                            st.code(chart_res.python_code, language="python")
-
-                if data is not None and not data.empty:
-                    st.markdown("**📋 Queried Data Table**")
-                    styled_data = style_dataframe_metrics(data, st.session_state.settings_colors)
-                    st.dataframe(styled_data, use_container_width=True, key=f"active_df_{active_idx}")
+                _, act_suggestions = split_suggestions(display_text)
+                if act_suggestions:
+                    st.markdown("**💡 Suggested Follow-ups:**")
+                    s_cols = st.columns(min(len(act_suggestions), 3))
+                    for s_i, sug in enumerate(act_suggestions):
+                        c_idx = s_i % len(s_cols)
+                        if s_cols[c_idx].button(f"🔍 {sug}", key=f"act_sug_{active_idx}_{s_i}"):
+                            submit_question(sug)
 
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": summary_text,
-                "sql_query": analyst_res.get("sql_query"),
-                "data": data,
-                "figure": chart_res.figure if chart_res else None,
-                "chart_result": chart_res
+                "display": display_text,
+                "content": [{"type": "text", "text": display_text}],
+                "blocks": blocks,
+                "data": latest_df
             })
 
 # --------------------------------------------------------------------------

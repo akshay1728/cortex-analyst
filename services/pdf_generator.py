@@ -25,16 +25,21 @@ def _markdown_to_reportlab_html(text: str) -> str:
     """Helper to convert markdown string to ReportLab compatible HTML."""
     if not text:
         return ""
-    # 1. Escape HTML XML entities first
-    escaped = html.escape(str(text))
 
-    # 2. Convert **bold** to <b>bold</b>
+    # 1. Strip emojis that are unsupported by Helvetica font in ReportLab
+    text_clean = re.sub(r'[\U00010000-\U0010FFFF\u2600-\u27FF]', '', str(text))
+
+    # 2. Convert markdown headers (### Title) to bold text before escaping
+    text_clean = re.sub(r'(?m)^#{1,6}\s*(.*?)$', r'**\1**', text_clean)
+
+    # 3. Escape HTML XML entities
+    escaped = html.escape(text_clean)
+
+    # 4. Convert **bold** to <b>bold</b> and *italic* to <i>italic</i>
     formatted = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped, flags=re.DOTALL)
-
-    # 3. Convert *italic* or _italic_ to <i>italic</i>
     formatted = re.sub(r'\*(.*?)\*', r'<i>\1</i>', formatted, flags=re.DOTALL)
 
-    # 4. Convert newlines to <br/>
+    # 5. Convert newlines to <br/>
     formatted = formatted.replace('\n', '<br/>')
 
     return formatted
@@ -246,11 +251,25 @@ def generate_conversation_pdf(
     # --- Conversation Body ---
     for idx, msg in enumerate(messages):
         role = msg.get("role", "user")
-        content = msg.get("content", "")
-        clean_content = _markdown_to_reportlab_html(content)
+
+        # Extract text content display string
+        display_str = msg.get("display")
+        if not display_str:
+            content_val = msg.get("content", "")
+            if isinstance(content_val, str):
+                display_str = content_val
+            elif isinstance(content_val, list):
+                display_str = " ".join([
+                    item.get("text", "") for item in content_val
+                    if isinstance(item, dict) and item.get("type") == "text"
+                ])
+            else:
+                display_str = str(content_val)
+
+        clean_content = _markdown_to_reportlab_html(display_str)
 
         if role == "user":
-            role_p = Paragraph("<b>🧑‍🏭 User</b>", meta_style)
+            role_p = Paragraph("<b>User</b>", meta_style)
             msg_p = Paragraph(clean_content, user_bubble_style)
 
             u_table = Table([[role_p], [Spacer(1, 3)], [msg_p]], colWidths=[540])
@@ -267,7 +286,7 @@ def generate_conversation_pdf(
 
         else:
             # Assistant Message Header & Text
-            role_p = Paragraph("<b>🤖 Assistant</b>", meta_style)
+            role_p = Paragraph("<b>Assistant</b>", meta_style)
             msg_p = Paragraph(clean_content, assistant_bubble_style)
 
             a_head_table = Table([[role_p], [Spacer(1, 3)], [msg_p]], colWidths=[540])
@@ -325,6 +344,16 @@ def generate_conversation_pdf(
                     ]))
                     elements.append(KeepTogether([chart_table]))
                     elements.append(Spacer(1, 6))
+
+            # Check for Cortex Agent blocks (chart / tool_results)
+            blocks = msg.get("blocks", [])
+            if isinstance(blocks, list):
+                from services.cortex_agent import tool_results_to_df
+                for b in blocks:
+                    if b.get("type") == "tool_results":
+                        block_df = tool_results_to_df(b.get("content"))
+                        if block_df is not None and not block_df.empty:
+                            msg["data"] = block_df
 
             # Queried Data Table Block
             data = msg.get("data")
