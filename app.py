@@ -20,7 +20,7 @@ import pandas as pd
 import numpy as np
 
 from config import APP_TITLE, APP_ICON
-from data.sample_data import generate_oee_dataset, calculate_aggregated_oee
+from data.sample_data import calculate_aggregated_oee
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
@@ -329,8 +329,9 @@ def load_dataset():
         try:
             return snowflake_session.sql("SELECT * FROM OEE_TELEMETRY").to_pandas()
         except Exception as query_err:
-            logger.warning(f"Snowflake table query failed: {query_err}. Using generated telemetry dataset.")
-    return generate_oee_dataset()
+            logger.error(f"Snowflake table query failed: {query_err}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 
 df_raw = load_dataset()

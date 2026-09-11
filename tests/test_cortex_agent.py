@@ -11,7 +11,7 @@ def test_get_agent_auth_config():
     assert host is None or isinstance(host, str)
     assert token is None or isinstance(token, str)
 
-def test_call_agent_offline_simulation():
+def test_call_agent_missing_auth_error():
     messages = [{"role": "user", "content": [{"type": "text", "text": "Show OEE by plant"}]}]
     events = list(call_agent(messages))
     assert len(events) >= 1
@@ -19,10 +19,8 @@ def test_call_agent_offline_simulation():
     blocks = collect_response(events)
     assert len(blocks) >= 1
 
-    types = [b["type"] for b in blocks]
-    assert "text" in types
-    assert "tool_results" in types
-    assert "chart" in types
+    assert blocks[0]["type"] == "text"
+    assert "Snowflake credentials or session token unavailable" in blocks[0]["text"]
 
 def test_tool_results_to_df_inline():
     tool_results = [

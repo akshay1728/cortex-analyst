@@ -13,6 +13,16 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
     "🧭 Filters" expander in app.py. Calling `st.sidebar.xxx` explicitly here
     would always target the sidebar directly and skip that expander.
     """
+    if df is None or df.empty or "date" not in df.columns:
+        st.info("No data available to filter.")
+        return {
+            "date_range": (),
+            "plants": ["All"],
+            "lines": ["All"],
+            "shifts": ["All"],
+            "product_families": ["All"]
+        }
+
     # Date Range Filter
     min_date = df["date"].min().date()
     max_date = df["date"].max().date()

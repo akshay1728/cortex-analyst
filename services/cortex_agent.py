@@ -31,7 +31,6 @@ def split_suggestions(text: str) -> Tuple[str, List[str]]:
     return main.strip(), suggestions
 
 from services.snowflake_connection import get_snowflake_session
-from data.sample_data import generate_oee_dataset
 
 logger = logging.getLogger("cortex_agent_service")
 
@@ -86,9 +85,20 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
     snowflake_host, token = get_agent_auth_config()
 
     if not snowflake_host or not token:
-        logger.info("Snowflake host or token missing. Using offline simulated agent generator.")
-        for evt in _simulated_agent_stream(messages):
-            yield evt
+        logger.error("Snowflake host or token missing. Cannot call Cortex Agent API.")
+        yield {
+            "event": "message.delta",
+            "data": {
+                "delta": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "❌ **Error**: Snowflake credentials or session token unavailable. Please check your Snowflake connection settings."
+                        }
+                    ]
+                }
+            }
+        }
         return
 
     agent_endpoint = f"https://{snowflake_host}/api/v2/cortex/agent:run"
@@ -139,9 +149,20 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
                 continue
 
     except Exception as req_err:
-        logger.error(f"Cortex Agent API request failed: {req_err}. Falling back to simulated response.")
-        for evt in _simulated_agent_stream(messages):
-            yield evt
+        logger.error(f"Cortex Agent API request failed: {req_err}.")
+        yield {
+            "event": "message.delta",
+            "data": {
+                "delta": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"❌ **Cortex Agent Error**: {req_err}"
+                        }
+                    ]
+                }
+            }
+        }
 
 
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
@@ -232,122 +253,3 @@ def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional
         st.vega_lite_chart(df, spec, use_container_width=True, key=key)
     else:
         st.warning("Chart spec received but no data to plot.")
-
-
-def _simulated_agent_stream(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Generates simulated Cortex Agent SSE events for offline/mock development."""
-    last_msg = messages[-1] if messages else {}
-    content = last_msg.get("content", "")
-    if isinstance(content, list):
-        q_text = " ".join([item.get("text", "") for item in content if item.get("type") == "text"])
-    else:
-        q_text = str(content)
-
-    q_lower = q_text.lower()
-    df_raw = generate_oee_dataset()
-
-    # Determine metric and grouping for offline response
-    if "availability" in q_lower:
-        metric = "availability"
-        m_label = "Availability (%)"
-    elif "performance" in q_lower:
-        metric = "performance"
-        m_label = "Performance (%)"
-    elif "quality" in q_lower:
-        metric = "quality"
-        m_label = "Quality (%)"
-    elif "downtime" in q_lower or "cause" in q_lower or "reason" in q_lower:
-        metric = "downtime_hours"
-        m_label = "Downtime (Hours)"
-    else:
-        metric = "oee"
-        m_label = "OEE (%)"
-
-    if "plant" in q_lower:
-        group_col = "plant"
-        g_label = "Plant"
-    elif "line" in q_lower:
-        group_col = "line"
-        g_label = "Line"
-    elif "shift" in q_lower:
-        group_col = "shift"
-        g_label = "Shift"
-    elif "downtime" in q_lower or "cause" in q_lower or "reason" in q_lower:
-        group_col = "downtime_reason"
-        g_label = "Downtime Reason"
-    else:
-        group_col = "plant"
-        g_label = "Plant"
-
-    if metric == "downtime_hours":
-        res_df = df_raw.groupby(group_col)[metric].sum().reset_index()
-    else:
-        res_df = df_raw.groupby(group_col)[metric].mean().reset_index()
-
-    res_df[metric] = res_df[metric].round(2)
-    res_df = res_df.sort_values(by=metric, ascending=False)
-    res_df.columns = [g_label, m_label]
-
-    # Convert res_df to inline result set
-    cols_meta = [{"name": c} for c in res_df.columns]
-    data_matrix = res_df.values.tolist()
-
-    summary_text = (
-        f"### 🤖 Cortex Agent Executive Analysis: {m_label} by {g_label}\n\n"
-        f"- **Top Segment**: **{res_df.iloc[0][g_label]}** at **{res_df.iloc[0][m_label]}**.\n"
-        f"- **Segment Average**: **{res_df[m_label].mean():.2f}** across {len(res_df)} evaluated categories.\n\n"
-        f"**Recommendation**: Optimize operations based on top segment practices."
-    )
-
-    chart_spec_dict = {
-        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-        "mark": {"type": "bar", "color": "#242B6B", "tooltip": True},
-        "encoding": {
-            "x": {"field": g_label, "type": "nominal", "axis": {"labelAngle": 0}},
-            "y": {"field": m_label, "type": "quantitative"}
-        }
-    }
-
-    return [
-        {
-            "event": "message.delta",
-            "data": {"delta": {"content": [{"type": "text", "text": summary_text}]}}
-        },
-        {
-            "event": "message.delta",
-            "data": {
-                "delta": {
-                    "content": [
-                        {
-                            "type": "tool_results",
-                            "tool_results": [
-                                {
-                                    "json": {
-                                        "result_set": {
-                                            "resultSetMetaData": {"rowType": cols_meta},
-                                            "data": data_matrix
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        },
-        {
-            "event": "message.delta",
-            "data": {
-                "delta": {
-                    "content": [
-                        {
-                            "type": "chart",
-                            "chart": {
-                                "chart_spec": json.dumps(chart_spec_dict)
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-    ]
