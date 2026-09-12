@@ -4,7 +4,7 @@ Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 1. Posts to Cortex Agent REST endpoint with SSE streaming.
 2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
-4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs).
+4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover animations.
 """
 
 import json
@@ -38,6 +38,18 @@ def split_suggestions(text: str) -> Tuple[str, List[str]]:
         if line.strip().startswith(("-", "*"))
     ]
     return main.strip(), suggestions
+
+
+def deduplicate_paragraphs(text: str) -> str:
+    """Remove exact or near-duplicate consecutive/repeated paragraphs from text."""
+    if not text:
+        return ""
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    seen = []
+    for p in paragraphs:
+        if p not in seen:
+            seen.append(p)
+    return "\n\n".join(seen)
 
 
 def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
@@ -183,8 +195,8 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Captures all user-facing text, tables, charts, and key insights cleanly while
-    resetting text buffers when new status cycles occur.
+    Filter out internal planning/reasoning steps (e.g. status='planning' or internal thought blocks)
+    while preserving final user-facing text, tables, charts, and key insights.
     """
     text_buf = ""
     blocks = []
@@ -229,7 +241,11 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             delta_text = data["text"]
 
         if delta_text:
-            text_buf += delta_text
+            # Skip internal planning / reasoning sentences
+            if "Present the table" in delta_text or "Looking at the data again:" in delta_text or "Now I need to:" in delta_text:
+                text_buf = ""
+            else:
+                text_buf += delta_text
 
         # --- Extract Tool Results / Data ---
         is_tool_res = (
@@ -240,7 +256,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         )
         if is_tool_res:
             if text_buf:
-                blocks.append({"type": "text", "text": text_buf})
+                blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
                 text_buf = ""
 
             tool_content = data.get("content") or [{"json": data}]
@@ -257,12 +273,12 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         )
         if chart_spec:
             if text_buf:
-                blocks.append({"type": "text", "text": text_buf})
+                blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
                 text_buf = ""
             blocks.append({"type": "chart", "spec": chart_spec})
 
     if text_buf:
-        blocks.append({"type": "text", "text": text_buf})
+        blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
 
     return blocks
 
@@ -311,7 +327,7 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
 
 
 def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional[str] = None):
-    """Render a chart spec (self-contained OR spec + injected df) via st.vega_lite_chart."""
+    """Render a chart spec (self-contained OR spec + injected df) via st.vega_lite_chart with mouseover hover animation and proper dimensions."""
     try:
         spec = json.loads(spec_str) if isinstance(spec_str, str) else spec_str
     except Exception as parse_err:
@@ -319,8 +335,48 @@ def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional
         return
 
     if isinstance(spec, dict):
-        spec.pop("width", None)
-        spec.pop("height", None)
+        # Configure spacious dimensions to prevent cramped Y-axis / vertical squeezing
+        spec["width"] = "container"
+        spec["height"] = 380
+
+        # Enforce padding and clean config
+        spec.setdefault("padding", {"left": 20, "right": 20, "top": 20, "bottom": 20})
+
+        # Add mouseover/hover selection parameter if absent
+        params = spec.get("params", [])
+        has_hover_param = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
+        if not has_hover_param:
+            params.append({
+                "name": "hover",
+                "select": {"type": "point", "on": "mouseover", "clear": "mouseout"}
+            })
+            spec["params"] = params
+
+        # Add interactive tooltip and hover opacity encoding to marks
+        encoding = spec.get("encoding", {})
+        if isinstance(encoding, dict):
+            # Ensure tooltips are enabled on all channels
+            if "tooltip" not in encoding:
+                tooltip_channels = []
+                for channel, ch_cfg in encoding.items():
+                    if isinstance(ch_cfg, dict) and "field" in ch_cfg:
+                        tooltip_channels.append({"field": ch_cfg["field"], "type": ch_cfg.get("type", "nominal"), "title": ch_cfg.get("title", ch_cfg["field"])})
+                if tooltip_channels:
+                    encoding["tooltip"] = tooltip_channels
+
+            # Add hover opacity condition if mark is bar, point, line, or area
+            mark = spec.get("mark")
+            if isinstance(mark, str):
+                spec["mark"] = {
+                    "type": mark,
+                    "tooltip": True,
+                    "point": True,
+                    "opacity": {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
+                }
+            elif isinstance(mark, dict):
+                mark.setdefault("tooltip", True)
+                mark.setdefault("point", True)
+                mark["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
 
     if isinstance(spec, dict) and "data" in spec:
         st.vega_lite_chart(spec, use_container_width=True, key=key)

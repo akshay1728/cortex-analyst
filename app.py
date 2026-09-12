@@ -21,7 +21,7 @@ import numpy as np
 
 from config import APP_TITLE, APP_ICON
 from data.sample_data import calculate_aggregated_oee
-from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions
+from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions, style_dataframe_metrics
@@ -496,8 +496,9 @@ else:
             is_latest = (idx == latest_assistant_idx)
             with st.expander(_response_label(idx), expanded=is_latest):
                 main_msg, suggestions = split_suggestions(disp_text)
-                if main_msg:
-                    st.markdown(main_msg)
+                clean_main_msg = deduplicate_paragraphs(main_msg)
+                if clean_main_msg:
+                    st.markdown(clean_main_msg)
 
                 if "sql_query" in msg and msg["sql_query"]:
                     st.markdown("**🛠️ Cortex Analyst Generated SQL Query**")
@@ -559,9 +560,10 @@ else:
                 latest_df = None
                 active_idx = len(st.session_state.messages)
 
-                # Concatenate all text blocks into single response text to prevent duplicate chunks
+                # Concatenate all text blocks into single deduplicated response text
                 text_parts = [b["text"] for b in blocks if b["type"] == "text" and b.get("text")]
-                display_text = "\n\n".join(text_parts) if text_parts else ""
+                raw_display_text = "\n\n".join(text_parts) if text_parts else ""
+                display_text = deduplicate_paragraphs(raw_display_text)
 
                 main_t, act_suggestions = split_suggestions(display_text)
                 if main_t:
