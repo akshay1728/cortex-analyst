@@ -229,11 +229,11 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Filter out internal planning/reasoning/tool metadata steps (e.g. status='planning' or tool_use_id text)
-    while preserving final user-facing text, tables, charts, and key insights.
+    Deduplicates chart blocks and filters out internal planning/reasoning metadata.
     """
     text_buf = ""
     blocks = []
+    seen_chart_specs = set()
 
     for evt_wrapper in events:
         evt_type = evt_wrapper.get("event")
@@ -309,19 +309,22 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             (data.get("spec") if "chart" in str(evt_type).lower() or "chart" in data else None)
         )
         if chart_spec:
-            if text_buf:
-                cleaned_text = deduplicate_paragraphs(text_buf)
-                if cleaned_text:
-                    blocks.append({"type": "text", "text": cleaned_text})
-                text_buf = ""
-            blocks.append({"type": "chart", "spec": chart_spec})
+            spec_key = str(chart_spec)
+            if spec_key not in seen_chart_specs:
+                seen_chart_specs.add(spec_key)
+                if text_buf:
+                    cleaned_text = deduplicate_paragraphs(text_buf)
+                    if cleaned_text:
+                        blocks.append({"type": "text", "text": cleaned_text})
+                    text_buf = ""
+                blocks.append({"type": "chart", "spec": chart_spec})
 
     if text_buf:
         final_clean = deduplicate_paragraphs(text_buf)
         if final_clean:
             blocks.append({"type": "text", "text": final_clean})
 
-    # Fallback chart generation if a tool_results table was returned without an explicit chart spec
+    # Fallback chart generation ONLY if no chart block exists
     has_chart = any(b.get("type") == "chart" for b in blocks)
     if not has_chart:
         for b in blocks:
@@ -333,6 +336,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                         chart_res = generate_chart("OEE Analytics Chart", df)
                         if chart_res and chart_res.should_visualize and chart_res.figure:
                             blocks.append({"type": "chart", "figure": chart_res.figure})
+                            break
                     except Exception as e_chart:
                         logger.warning(f"Automatic chart fallback generation failed: {e_chart}")
 
