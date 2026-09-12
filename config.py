@@ -35,7 +35,7 @@ METRICS = {
     "reject_count": "Defective Units"
 }
 
-# Snowflake / Cortex API Configuration defaults (can be overridden by st.secrets or env vars)
+# Snowflake / Cortex API Configuration defaults (can be overridden by environment variables)
 SNOWFLAKE_CONFIG = {
     "account": os.getenv("SNOWFLAKE_ACCOUNT", ""),
     "user": os.getenv("SNOWFLAKE_USER", ""),

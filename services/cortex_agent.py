@@ -5,7 +5,6 @@ Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
 4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs).
-5. Provides safe offline simulation fallback when Snowflake connection or st.secrets are absent.
 """
 
 import json
@@ -38,17 +37,14 @@ logger = logging.getLogger("cortex_agent_service")
 import os
 
 def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
-    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls.
+    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls in Snowflake Container Runtime.
 
     Supports:
     1. Container Runtime native OAuth token mounted at /snowflake/session/token.
-    2. Environment variable SNOWFLAKE_HOST or st.secrets["SNOWFLAKE_HOST"].
-    3. Snowpark session token fallback.
+    2. Environment variable SNOWFLAKE_HOST or active Snowpark session.
     """
     try:
         snowflake_host = os.environ.get("SNOWFLAKE_HOST")
-        if not snowflake_host and hasattr(st, "secrets"):
-            snowflake_host = st.secrets.get("SNOWFLAKE_HOST")
 
         session = get_snowflake_session()
         if not snowflake_host and session is not None:
@@ -118,7 +114,7 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         elif isinstance(content, list):
             formatted_api_messages.append({"role": role, "content": content})
 
-    semantic_view = st.secrets.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS") if hasattr(st, "secrets") else "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS"
+    semantic_view = os.environ.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
 
     payload = {
         "model": "claude-sonnet-4-5",
