@@ -5,6 +5,7 @@ Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
 4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs).
+5. Provides safe offline simulation fallback when Snowflake connection or st.secrets are absent.
 """
 
 import json
@@ -32,28 +33,41 @@ def split_suggestions(text: str) -> Tuple[str, List[str]]:
 from services.snowflake_connection import get_snowflake_session
 
 logger = logging.getLogger("cortex_agent_service")
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.DEBUG)
+    logger.addHandler(_handler)
 
 
 import os
 
 def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
-    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls in Snowflake Container Runtime.
+    """Retrieve Snowflake Host and Token for Cortex Agent REST API calls.
 
     Supports:
     1. Container Runtime native OAuth token mounted at /snowflake/session/token.
-    2. Environment variable SNOWFLAKE_HOST or active Snowpark session.
+    2. Environment variable SNOWFLAKE_HOST.
+    3. Snowpark session token fallback.
     """
     try:
+        # 1. Resolve the Host
         snowflake_host = os.environ.get("SNOWFLAKE_HOST")
 
         session = get_snowflake_session()
         if not snowflake_host and session is not None:
             try:
-                snowflake_host = session.connection.rest.host
+                # Extracts the host string directly from the active session connection
+                snowflake_host = session.connection.host
             except Exception:
-                pass
+                try:
+                    snowflake_host = session.connection.rest.host
+                except Exception:
+                    pass
 
+        # 2. Resolve the Token
         token = None
+
         # Path 1: Container Runtime Native OAuth Token File
         token_path = "/snowflake/session/token"
         if os.path.exists(token_path):
@@ -66,11 +80,16 @@ def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
         # Path 2: Snowpark session token fallback
         if not token and session is not None:
             try:
-                token = session.connection.rest.token
+                # Falls back to standard session token if running on a warehouse runtime
+                token = session.connection._conn._token
             except Exception:
-                pass
+                try:
+                    token = session.connection.rest.token
+                except Exception:
+                    pass
 
         return snowflake_host, token
+
     except Exception as e:
         logger.warning(f"Unable to retrieve Snowflake session or host for Cortex Agent: {e}")
         return None, None
@@ -98,6 +117,12 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         return
 
     agent_endpoint = f"https://{snowflake_host}/api/v2/cortex/agent:run"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Snowflake-Authorization-Token-Type": "OAUTH",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
 
     # Format messages for Cortex Agent REST API
     formatted_api_messages = []
@@ -109,10 +134,11 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         elif isinstance(content, list):
             formatted_api_messages.append({"role": role, "content": content})
 
+    # Removed st.secrets fallback. Now pulls directly from environment variables.
     semantic_view = os.environ.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
 
     payload = {
-        "model": "claude-sonnet-4-5",
+        "models": {"orchestration": "claude-sonnet-4-5"},
         "messages": formatted_api_messages,
         "tools": [
             {"tool_spec": {"type": "cortex_analyst_text_to_sql", "name": "traksys_analyst"}},
@@ -120,53 +146,22 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
             {"tool_spec": {"type": "data_to_chart", "name": "data_to_chart"}},
         ],
         "tool_resources": {
-            "traksys_analyst": {"semantic_view": semantic_view}
+            "traksys_analyst": {
+                "semantic_view": semantic_view,
+                "execution_environment": {
+                    "type": "warehouse",
+                    "warehouse": "WH_APPS"
+                }
+            }
         },
     }
 
-    # Try auth header schemes: 'Snowflake Token="..."' and 'Bearer ...'
-    auth_headers_to_try = [
-        {"Authorization": f'Snowflake Token="{token}"', "Content-Type": "application/json", "Accept": "text/event-stream"},
-        {"Authorization": f'Bearer {token}', "Content-Type": "application/json", "Accept": "text/event-stream"},
-    ]
-
-    resp = None
-    last_err = None
-
-    for headers in auth_headers_to_try:
-        try:
-            r = requests.post(agent_endpoint, headers=headers, json=payload, stream=True, timeout=60)
-            if r.status_code == 401:
-                logger.info("401 Unauthorized with auth header scheme. Trying alternative auth scheme...")
-                last_err = requests.HTTPError(f"401 Client Error: Unauthorized for url: {agent_endpoint}", response=r)
-                continue
-            r.raise_for_status()
-            resp = r
-            break
-        except requests.HTTPError as h_err:
-            last_err = h_err
-            if h_err.response is not None and h_err.response.status_code == 401:
-                continue
-            raise h_err
-
-    if resp is None and last_err is not None:
-        logger.error(f"Cortex Agent API request failed: {last_err}.")
-        yield {
-            "event": "message.delta",
-            "data": {
-                "delta": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"❌ **Cortex Agent Error**: {last_err}"
-                        }
-                    ]
-                }
-            }
-        }
-        return
 
     try:
+        resp = requests.post(agent_endpoint, headers=headers, json=payload, stream=True, timeout=60)
+        logger.info(f"Cortex Agent API res: {resp.text}.")
+        resp.raise_for_status()
+
         for line in resp.iter_lines(decode_unicode=True):
             if not line or not line.startswith("data:"):
                 continue
@@ -179,7 +174,7 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
                 continue
 
     except Exception as req_err:
-        logger.error(f"Cortex Agent API stream reading failed: {req_err}.")
+        logger.error(f"Cortex Agent API request failed: {req_err}.")
         yield {
             "event": "message.delta",
             "data": {
@@ -194,26 +189,79 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
             }
         }
 
-
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
-    """Merge streaming deltas into a list of finished, ordered content blocks."""
+    """Merge streaming deltas into a list of finished, ordered content blocks.
+
+    Handles the new Cortex Agent API response format (Sept 2025+).
+    Discards internal reasoning/planning text -- only keeps the final
+    user-facing response that comes after the last planning cycle.
+    """
     text_buf = ""
-    blocks = []  # ordered list of {"type": ..., ...}
+    blocks = []
 
     for evt in events:
+        # --- Skip non-content events ---
+
+        # Status/planning events: discard any accumulated reasoning text
+        if "status" in evt:
+            status = evt["status"]
+            if status in ("planning", "reevaluating_plan"):
+                # Agent is re-planning; everything before this was reasoning
+                text_buf = ""
+                # Remove any text-only blocks from reasoning phase,
+                # but keep data/chart blocks
+                blocks = [b for b in blocks if b["type"] != "text"]
+            continue
+
+        # Skip system tool call metadata
+        if evt.get("type") in ("system_agentic_semantic_context",):
+            continue
+
+        # Skip tool results that contain internal metadata (e.g. custom_instructions)
+        if "content" in evt and isinstance(evt["content"], list):
+            inner = evt["content"]
+            if inner and isinstance(inner[0], dict):
+                j = inner[0].get("json", {})
+                if "custom_instructions" in j:
+                    continue
+
+        # --- Capture user-facing content ---
+
+        # Text chunk: {"content_index": N, "text": "..."}
+        if "text" in evt and "content_index" in evt:
+            text_buf += evt["text"]
+            continue
+
+        # Data result: {"content_index": N, "query_id": "...", "result_set": {...}}
+        if "result_set" in evt or "query_id" in evt:
+            if text_buf:
+                blocks.append({"type": "text", "text": text_buf})
+                text_buf = ""
+            blocks.append({
+                "type": "tool_results",
+                "content": [{"json": evt}]
+            })
+            continue
+
+        # Chart: {"chart_spec": "..."}
+        if "chart_spec" in evt:
+            if text_buf:
+                blocks.append({"type": "text", "text": text_buf})
+                text_buf = ""
+            blocks.append({"type": "chart", "spec": evt["chart_spec"]})
+            continue
+
+        # --- Legacy nested format fallback ---
         delta = evt.get("data", {}).get("delta", {})
         for item in delta.get("content", []):
             t = item.get("type")
-
             if t == "text":
                 text_buf += item.get("text", "")
-
             elif t == "chart":
                 if text_buf:
                     blocks.append({"type": "text", "text": text_buf})
                     text_buf = ""
                 blocks.append({"type": "chart", "spec": item["chart"]["chart_spec"]})
-
             elif t == "tool_results":
                 if text_buf:
                     blocks.append({"type": "text", "text": text_buf})
@@ -252,9 +300,13 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
         rs = j.get("result_set")
         if rs and isinstance(rs, dict):
             try:
-                cols = [col["name"] for col in rs.get("resultSetMetaData", {}).get("rowType", [])]
+                row_type = rs.get("resultSetMetaData", {}).get("rowType", [])
+                cols = [col["name"] for col in row_type] if row_type else None
                 data_rows = rs.get("data", [])
-                return pd.DataFrame(data_rows, columns=cols)
+                if cols:
+                    return pd.DataFrame(data_rows, columns=cols)
+                elif data_rows:
+                    return pd.DataFrame(data_rows)
             except Exception as e_rs:
                 logger.warning(f"Parsing inline result_set failed: {e_rs}")
 
