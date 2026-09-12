@@ -53,9 +53,9 @@ def test_split_suggestions():
 
 def test_collect_response_buffering():
     raw_events = [
-        {"event": "message.delta", "data": {"delta": {"content": [{"type": "text", "text": "Hello "}]}}},
-        {"event": "message.delta", "data": {"delta": {"content": [{"type": "text", "text": "world!"}]}}},
-        {"event": "message.delta", "data": {"delta": {"content": [{"type": "chart", "chart": {"chart_spec": "{}"}}]}}},
+        {"event": "response.text.delta", "data": {"text": "Hello "}},
+        {"event": "response.text.delta", "data": {"text": "world!"}},
+        {"event": "response.chart", "data": {"chart_spec": "{}"}},
     ]
     blocks = collect_response(raw_events)
     assert len(blocks) == 2

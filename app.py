@@ -558,12 +558,16 @@ else:
                 display_text = ""
                 active_idx = len(st.session_state.messages)
 
+                # Concatenate all text blocks into single response text to prevent duplicate chunks
+                text_parts = [b["text"] for b in blocks if b["type"] == "text" and b.get("text")]
+                display_text = "\n\n".join(text_parts) if text_parts else ""
+
+                main_t, act_suggestions = split_suggestions(display_text)
+                if main_t:
+                    st.markdown(main_t)
+
                 for b_idx, b in enumerate(blocks):
-                    if b["type"] == "text":
-                        display_text += b["text"]
-                        main_t, sug_list = split_suggestions(b["text"])
-                        st.markdown(main_t)
-                    elif b["type"] == "tool_results":
+                    if b["type"] == "tool_results":
                         latest_df = tool_results_to_df(b["content"])
                         if latest_df is not None and not latest_df.empty:
                             st.markdown("**📋 Queried Data Table**")
@@ -573,7 +577,6 @@ else:
                         st.markdown("**📊 Visualization Chart**")
                         render_chart(b["spec"], latest_df, key=f"act_chart_{active_idx}_{b_idx}")
 
-                _, act_suggestions = split_suggestions(display_text)
                 if act_suggestions:
                     st.markdown("**💡 Suggested Follow-ups:**")
                     s_cols = st.columns(min(len(act_suggestions), 3))
