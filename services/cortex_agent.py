@@ -89,10 +89,112 @@ def deduplicate_paragraphs(text: str) -> str:
     return "\n\n".join(seen)
 
 
+# Fuzzy keyword -> icon map for standalone header-like lines. Substring match
+# (not exact), so "Key Observations", "Component Analysis:", "Executive
+# Summary" etc. all resolve without needing every exact phrase listed.
+# Icons are chosen to be common, widely-rendered emoji (avoid glyphs like the
+# eye emoji that render as an unrelated fallback symbol on some systems).
+_HEADER_KEYWORDS = [
+    ("root cause", "🧩"),
+    ("recommend", "✅"),
+    ("next step", "➡️"),
+    ("finding", "🔍"),
+    ("observation", "👁️"),
+    ("insight", "💡"),
+    ("downtime", "⏱️"),
+    ("summary", "📌"),
+    ("trend", "📈"),
+    ("impact", "🎯"),
+    ("component", "🧱"),
+    ("overview", "🗂️"),
+    ("analysis", "🧠"),
+]
+
+# A line is treated as a standalone header only if, once markdown list/bold
+# markers are stripped, the ENTIRE line is just a short label (<=6 words)
+# ending optionally in a colon — so it never matches a full sentence.
+_SECTION_LINE_RE = re.compile(
+    r'^[ \t]*(?:#{1,4}[ \t]*)?[\*\-][ \t]*\**[ \t]*([A-Za-z][A-Za-z \-]{1,45}?)[ \t]*:?[ \t]*\**[ \t]*$'
+    r'|^[ \t]*\**[ \t]*([A-Za-z][A-Za-z \-]{1,45}?)[ \t]*:[ \t]*\**[ \t]*$',
+    re.IGNORECASE | re.MULTILINE
+)
+
+# Any single "X%" or range "X-Y%" / "X% to Y%" value.
+_NUM_TOKEN_RE = re.compile(
+    r'(?i)(?P<range>\d{1,3}(?:\.\d+)?\s*(?:-|–|to)\s*\d{1,3}(?:\.\d+)?\s*%)'
+    r'|(?P<single>\d{1,3}(?:\.\d+)?\s*%)'
+)
+
+# Numbers preceded by these words describe a reference/target, not a
+# measured value, and should never be badged (e.g. "industry targets of
+# 60-85%").
+_REFERENCE_CONTEXT_RE = re.compile(r'(?i)(target|goal|industry|benchmark)[^.]{0,20}$')
+
+
+def _section_replacer(match: "re.Match") -> str:
+    label_raw = (match.group(1) or match.group(2) or "").strip()
+    if not label_raw or len(label_raw.split()) > 6:
+        return match.group(0)
+    label_lower = label_raw.lower()
+    icon = next((ic for kw, ic in _HEADER_KEYWORDS if kw in label_lower), None)
+    if not icon:
+        return match.group(0)
+    return f'<div class="oee-section-header"><span class="icon">{icon}</span>{label_raw.title()}</div>'
+
+
+def _format_line(line: str) -> str:
+    """Highlight every OEE-style percentage value on a line with a single,
+    neutral badge style — no color-coding and no comparison against any
+    target. Reference values ("industry targets of 60-85%") are skipped.
+    """
+    out_parts = []
+    last_end = 0
+    for m in _NUM_TOKEN_RE.finditer(line):
+        out_parts.append(line[last_end:m.start()])
+        last_end = m.end()
+
+        matched_text = m.group("range") or m.group("single")
+        if _REFERENCE_CONTEXT_RE.search(line[:m.start()]):
+            out_parts.append(matched_text)
+        else:
+            out_parts.append(f'<span class="oee-badge oee-badge-value">{matched_text}</span>')
+
+    out_parts.append(line[last_end:])
+    return "".join(out_parts)
+
+
+def format_oee_markdown(text: str) -> str:
+    """Post-process agent markdown for display: turns short standalone label
+    lines into icon section headers, and gives every OEE/Availability/
+    Performance/Quality-style percentage a single neutral highlight badge.
+
+    This does NOT compare values against any target or threshold, and does
+    not color-code by pass/fail — it's a plain visual highlight only.
+    Reference values ("industry targets of 60-85%") are left unbadged.
+
+    Output contains inline HTML and must be rendered with
+    st.markdown(result, unsafe_allow_html=True).
+    """
+    if not text:
+        return text
+
+    lines = text.split("\n")
+    out_lines = []
+    for line in lines:
+        header_match = _SECTION_LINE_RE.match(line)
+        if header_match:
+            out_lines.append(_section_replacer(header_match))
+            continue
+        out_lines.append(_format_line(line))
+
+    return "\n".join(out_lines)
+
+
 def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
     """Retrieve Snowflake Host and Token for Cortex Agent REST API calls.
 
     Supports:
+
     1. Container Runtime native OAuth token mounted at /snowflake/session/token.
     2. Environment variable SNOWFLAKE_HOST.
     3. Snowpark session token fallback.
