@@ -5,16 +5,23 @@ import pandas as pd
 from typing import Dict, Any, List
 from data.sample_data import calculate_aggregated_oee
 
+def _find_col(df: pd.DataFrame, target_name: str) -> str:
+    """Find a column in DataFrame matching target_name (case-insensitive)."""
+    if df is None or df.empty:
+        return None
+    for col in df.columns:
+        if str(col).lower() == target_name.lower():
+            return col
+    return None
+
 def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
     """Render sidebar filters and return user selected options.
 
-    Uses relative `st.xxx(...)` calls (not `st.sidebar.xxx(...)`) so this
-    renders correctly whichever container it's called from — including the
-    "🧭 Filters" expander in app.py. Calling `st.sidebar.xxx` explicitly here
-    would always target the sidebar directly and skip that expander.
+    Uses relative `st.xxx(...)` calls so this renders correctly whichever container it's called from.
+    Handles case-insensitive column lookups for 'date', 'plant', 'line', 'shift', 'product_family'.
     """
-    if df is None or df.empty or "date" not in df.columns:
-        st.info("No data available to filter.")
+    if df is None or df.empty:
+        st.info("No telemetry dataset loaded.")
         return {
             "date_range": (),
             "plants": ["All"],
@@ -23,32 +30,51 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
             "product_families": ["All"]
         }
 
-    # Date Range Filter
-    min_date = df["date"].min().date()
-    max_date = df["date"].max().date()
+    date_col = _find_col(df, "date")
+    plant_col = _find_col(df, "plant")
+    line_col = _find_col(df, "line")
+    shift_col = _find_col(df, "shift")
+    family_col = _find_col(df, "product_family")
 
-    date_range = st.date_input(
-        "Date Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
+    # Date Range Filter
+    date_range = ()
+    if date_col:
+        try:
+            date_series = pd.to_datetime(df[date_col])
+            min_date = date_series.min().date()
+            max_date = date_series.max().date()
+            date_range = st.date_input(
+                "Date Range",
+                value=(min_date, max_date),
+                min_value=min_date,
+                max_value=max_date
+            )
+        except Exception:
+            pass
 
     # Plant Filter
-    available_plants = ["All"] + sorted(list(df["plant"].unique()))
-    selected_plants = st.multiselect("Select Plant(s)", options=available_plants, default=["All"])
+    selected_plants = ["All"]
+    if plant_col:
+        available_plants = ["All"] + sorted(list(df[plant_col].dropna().astype(str).unique()))
+        selected_plants = st.multiselect("Select Plant(s)", options=available_plants, default=["All"])
 
     # Line Filter
-    available_lines = ["All"] + sorted(list(df["line"].unique()))
-    selected_lines = st.multiselect("Select Line(s)", options=available_lines, default=["All"])
+    selected_lines = ["All"]
+    if line_col:
+        available_lines = ["All"] + sorted(list(df[line_col].dropna().astype(str).unique()))
+        selected_lines = st.multiselect("Select Line(s)", options=available_lines, default=["All"])
 
     # Shift Filter
-    available_shifts = ["All"] + sorted(list(df["shift"].unique()))
-    selected_shifts = st.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
+    selected_shifts = ["All"]
+    if shift_col:
+        available_shifts = ["All"] + sorted(list(df[shift_col].dropna().astype(str).unique()))
+        selected_shifts = st.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
 
     # Product Family Filter
-    available_families = ["All"] + sorted(list(df["product_family"].unique()))
-    selected_families = st.multiselect("Product Family", options=available_families, default=["All"])
+    selected_families = ["All"]
+    if family_col:
+        available_families = ["All"] + sorted(list(df[family_col].dropna().astype(str).unique()))
+        selected_families = st.multiselect("Product Family", options=available_families, default=["All"])
 
     return {
         "date_range": date_range,
