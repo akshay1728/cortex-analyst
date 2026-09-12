@@ -364,34 +364,55 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         return
 
     if isinstance(spec, dict):
-        # Configure spacious dimensions to prevent cramped Y-axis / vertical squeezing
+        # 1. Eliminate large top title gap and fix Y-axis scaling
         spec["width"] = "container"
-        spec["height"] = 380
+        spec["height"] = 320
+        spec["padding"] = {"left": 10, "right": 10, "top": 5, "bottom": 10}
+        spec["autosize"] = {"type": "fit-x", "contains": "padding"}
 
-        # Enforce padding and clean config
-        spec.setdefault("padding", {"left": 20, "right": 20, "top": 20, "bottom": 20})
+        # Configure Title position tightly to chart top
+        if "title" in spec:
+            if isinstance(spec["title"], str):
+                spec["title"] = {
+                    "text": spec["title"],
+                    "anchor": "start",
+                    "offset": 8,
+                    "fontSize": 15,
+                    "font": "Poppins, sans-serif",
+                    "color": "#242B6B"
+                }
+            elif isinstance(spec["title"], dict):
+                spec["title"]["anchor"] = "start"
+                spec["title"]["offset"] = 8
+                spec["title"]["fontSize"] = 15
+                spec["title"]["font"] = "Poppins, sans-serif"
+                spec["title"]["color"] = "#242B6B"
 
-        # Add mouseover/hover selection parameter if absent
-        params = spec.get("params", [])
-        has_hover_param = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
-        if not has_hover_param:
-            params.append({
-                "name": "hover",
-                "select": {"type": "point", "on": "mouseover", "clear": "mouseout"}
-            })
-            spec["params"] = params
-
-        # Add interactive tooltip and hover opacity encoding to marks
+        # 2. Fix Y-axis scaling so vertical axis uses height prominently
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
+            y_enc = encoding.get("y")
+            if isinstance(y_enc, dict):
+                scale_cfg = y_enc.get("scale", {})
+                if not isinstance(scale_cfg, dict):
+                    scale_cfg = {}
+                scale_cfg.setdefault("zero", False)
+                y_enc["scale"] = scale_cfg
+
+            # Ensure tooltips are enabled on all channels
             if "tooltip" not in encoding:
                 tooltip_channels = []
                 for channel, ch_cfg in encoding.items():
                     if isinstance(ch_cfg, dict) and "field" in ch_cfg:
-                        tooltip_channels.append({"field": ch_cfg["field"], "type": ch_cfg.get("type", "nominal"), "title": ch_cfg.get("title", ch_cfg["field"])})
+                        tooltip_channels.append({
+                            "field": ch_cfg["field"],
+                            "type": ch_cfg.get("type", "nominal"),
+                            "title": ch_cfg.get("title", ch_cfg["field"])
+                        })
                 if tooltip_channels:
                     encoding["tooltip"] = tooltip_channels
 
+            # Add hover opacity condition if mark is bar, point, line, or area
             mark = spec.get("mark")
             if isinstance(mark, str):
                 spec["mark"] = {
@@ -404,6 +425,16 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 mark.setdefault("tooltip", True)
                 mark.setdefault("point", True)
                 mark["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
+
+        # 3. Add mouseover/hover selection parameter if absent
+        params = spec.get("params", [])
+        has_hover_param = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
+        if not has_hover_param:
+            params.append({
+                "name": "hover",
+                "select": {"type": "point", "on": "mouseover", "clear": "mouseout"}
+            })
+            spec["params"] = params
 
     if isinstance(spec, dict) and "data" in spec:
         st.vega_lite_chart(spec, use_container_width=True, key=key)
