@@ -47,6 +47,9 @@ def deduplicate_paragraphs(text: str) -> str:
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     seen = []
     for p in paragraphs:
+        # Skip internal tool/scratchpad sentences in output text
+        if "tool_use_id" in p or "toolu_" in p or "data_to_chart" in p or "successfully created" in p:
+            continue
         if p not in seen:
             seen.append(p)
     return "\n\n".join(seen)
@@ -195,7 +198,7 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Filter out internal planning/reasoning steps (e.g. status='planning' or internal thought blocks)
+    Filter out internal planning/reasoning/tool metadata steps (e.g. status='planning' or tool_use_id text)
     while preserving final user-facing text, tables, charts, and key insights.
     """
     text_buf = ""
@@ -241,8 +244,8 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             delta_text = data["text"]
 
         if delta_text:
-            # Skip internal planning / reasoning sentences
-            if "Present the table" in delta_text or "Looking at the data again:" in delta_text or "Now I need to:" in delta_text:
+            # Skip internal planning / tool metadata sentences
+            if any(term in delta_text for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
                 text_buf = ""
             else:
                 text_buf += delta_text
@@ -256,7 +259,9 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         )
         if is_tool_res:
             if text_buf:
-                blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
+                cleaned_text = deduplicate_paragraphs(text_buf)
+                if cleaned_text:
+                    blocks.append({"type": "text", "text": cleaned_text})
                 text_buf = ""
 
             tool_content = data.get("content") or [{"json": data}]
@@ -274,12 +279,16 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         )
         if chart_spec:
             if text_buf:
-                blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
+                cleaned_text = deduplicate_paragraphs(text_buf)
+                if cleaned_text:
+                    blocks.append({"type": "text", "text": cleaned_text})
                 text_buf = ""
             blocks.append({"type": "chart", "spec": chart_spec})
 
     if text_buf:
-        blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
+        final_clean = deduplicate_paragraphs(text_buf)
+        if final_clean:
+            blocks.append({"type": "text", "text": final_clean})
 
     # Fallback chart generation if a tool_results table was returned without an explicit chart spec
     has_chart = any(b.get("type") == "chart" for b in blocks)
