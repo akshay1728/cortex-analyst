@@ -183,8 +183,8 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Discards internal planning/reasoning text upon planning status events so only final user-facing text is shown.
-    Parses text deltas, tool_results, and charts from both named SSE events and JSON data payloads.
+    Captures all user-facing text, tables, charts, and key insights cleanly while
+    resetting text buffers when new status cycles occur.
     """
     text_buf = ""
     blocks = []
@@ -197,14 +197,12 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
 
         # --- Status / Planning Events ---
         status = data.get("status") or (data.get("data", {}).get("status") if isinstance(data.get("data"), dict) else None)
-        if status in ("planning", "reevaluating_plan", "executing"):
-            if status in ("planning", "reevaluating_plan"):
-                # Discard reasoning text from earlier planning phases
-                text_buf = ""
-                blocks = [b for b in blocks if b["type"] != "text"]
+        if status in ("planning", "reevaluating_plan"):
+            text_buf = ""
+            blocks = [b for b in blocks if b["type"] != "text"]
             continue
 
-        # --- Skip system agentic metadata ---
+        # Skip system agentic metadata
         if data.get("type") == "system_agentic_semantic_context":
             continue
 
@@ -219,11 +217,9 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         # --- Extract Text Delta ---
         delta_text = None
 
-        # Format 1: SSE event: response.text.delta or data = {"text": "..."} or {"delta": {"text": "..."}}
         if evt_type in ("response.text.delta", "text.delta", "message.delta"):
             delta_text = data.get("text") or data.get("delta", {}).get("text")
             if not delta_text and isinstance(data.get("delta"), dict):
-                # Legacy content array delta
                 content_arr = data.get("delta", {}).get("content", [])
                 for item in content_arr:
                     if item.get("type") == "text":

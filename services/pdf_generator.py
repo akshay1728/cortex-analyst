@@ -3,6 +3,7 @@
 import io
 import re
 import html
+import json
 import logging
 from datetime import datetime
 import pandas as pd
@@ -45,22 +46,51 @@ def _markdown_to_reportlab_html(text: str) -> str:
     return formatted
 
 
-def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230) -> RLImage:
-    """Convert any Plotly figure representation (Figure, dict, json) into a ReportLab Image flowable."""
+def _convert_figure_to_rl_image(fig_obj, df_data: pd.DataFrame = None, width: float = 480, height: float = 230) -> RLImage:
+    """Convert any Plotly figure or Vega-Lite chart spec into a ReportLab Image flowable."""
     if fig_obj is None:
         return None
 
     img_bytes = None
 
     try:
-        # If it's already a Plotly Figure or has to_image
+        # Path A: Vega-Lite spec string or dict
+        if isinstance(fig_obj, (str, dict)):
+            spec = json.loads(fig_obj) if isinstance(fig_obj, str) else fig_obj
+            if isinstance(spec, dict) and ("$schema" in spec or "mark" in spec or "encoding" in spec):
+                # Build Plotly chart from Vega-Lite spec and df_data
+                enc = spec.get("encoding", {})
+                x_field = enc.get("x", {}).get("field")
+                y_field = enc.get("y", {}).get("field")
+
+                if x_field and y_field and df_data is not None and not df_data.empty and x_field in df_data.columns and y_field in df_data.columns:
+                    mark_type = spec.get("mark", "bar")
+                    if isinstance(mark_type, dict):
+                        mark_type = mark_type.get("type", "bar")
+
+                    fig = go.Figure()
+                    if mark_type in ("line", "area"):
+                        fig.add_trace(go.Scatter(x=df_data[x_field], y=df_data[y_field], mode="lines+markers", line=dict(color="#242B6B", width=2.5)))
+                    else:
+                        fig.add_trace(go.Bar(x=df_data[x_field], y=df_data[y_field], marker_color="#242B6B"))
+
+                    fig.update_layout(
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="#F8F9FE",
+                        margin=dict(l=20, r=20, t=30, b=20),
+                        xaxis_title=str(x_field),
+                        yaxis_title=str(y_field)
+                    )
+                    fig_obj = fig
+
+        # Path B: Plotly figure
         if hasattr(fig_obj, "to_image"):
             try:
                 img_bytes = fig_obj.to_image(format="png", width=750, height=360, scale=2)
             except Exception as e1:
                 logger.warning(f"Direct fig_obj.to_image failed: {e1}")
 
-        # If it's a dict or couldn't call to_image directly
         if img_bytes is None and isinstance(fig_obj, dict):
             try:
                 fig = go.Figure(fig_obj)
@@ -68,34 +98,7 @@ def _convert_figure_to_rl_image(fig_obj, width: float = 480, height: float = 230
             except Exception as e2:
                 logger.warning(f"pio.to_image with dict failed: {e2}")
 
-        # If fig_obj is a go.Figure or has update_layout, sanitize colors & enforce explicit light background
-        if hasattr(fig_obj, "update_layout"):
-            try:
-                fig_obj.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="#F8F9FE")
-
-                # Sanitize bar and histogram trace colors so they don't render as black
-                if hasattr(fig_obj, "data"):
-                    for trace in fig_obj.data:
-                        trace_type = getattr(trace, "type", "")
-                        if trace_type in ("bar", "histogram"):
-                            m_color = getattr(trace.marker, "color", None) if hasattr(trace, "marker") else None
-                            # If marker color is black, dark, or unset, override with brand navy blue
-                            if m_color in ("black", "#000000", "#000", "rgb(0,0,0)", "rgb(0, 0, 0)", None):
-                                trace.marker.color = "#242B6B"
-                            if hasattr(trace, "textfont"):
-                                trace.textfont.color = "white"
-            except Exception as e_layout:
-                logger.warning(f"Error sanitizing fig_obj layout colors: {e_layout}")
-
-        # Fallback using pio.to_image directly
-        if img_bytes is None:
-            try:
-                img_bytes = pio.to_image(fig_obj, format="png", width=750, height=360, scale=2)
-            except Exception as e3:
-                logger.warning(f"Fallback pio.to_image failed: {e3}")
-
         if img_bytes:
-            # Composite RGBA image over clean solid white RGB canvas to preserve vibrant colors
             pil_img = PILImage.open(io.BytesIO(img_bytes))
             rgb_canvas = PILImage.new("RGB", pil_img.size, (255, 255, 255))
             if pil_img.mode in ("RGBA", "LA"):
@@ -252,7 +255,6 @@ def generate_conversation_pdf(
     for idx, msg in enumerate(messages):
         role = msg.get("role", "user")
 
-        # Extract text content display string
         display_str = msg.get("display")
         if not display_str:
             content_val = msg.get("content", "")
@@ -285,7 +287,6 @@ def generate_conversation_pdf(
             elements.append(Spacer(1, 8))
 
         else:
-            # Assistant Message Header & Text
             role_p = Paragraph("<b>Assistant</b>", meta_style)
             msg_p = Paragraph(clean_content, assistant_bubble_style)
 
@@ -301,7 +302,7 @@ def generate_conversation_pdf(
             elements.append(a_head_table)
             elements.append(Spacer(1, 6))
 
-            # Generated SQL Block
+            # SQL Query Block
             sql_query = msg.get("sql_query")
             if sql_query:
                 sql_title = Paragraph("<b>Generated SQL Query:</b>", meta_style)
@@ -319,17 +320,24 @@ def generate_conversation_pdf(
                 elements.append(sql_table)
                 elements.append(Spacer(1, 6))
 
-            # Chart Visualization Block - extract figure from figure or chart_result
-            fig = msg.get("figure")
-            if fig is None and "chart_result" in msg and msg["chart_result"]:
-                chart_res = msg["chart_result"]
-                if hasattr(chart_res, "figure"):
-                    fig = chart_res.figure
-                elif isinstance(chart_res, dict) and "figure" in chart_res:
-                    fig = chart_res["figure"]
+            # Extract data from blocks
+            blocks = msg.get("blocks", [])
+            last_df = msg.get("data")
+            chart_spec = None
 
+            if isinstance(blocks, list):
+                from services.cortex_agent import tool_results_to_df
+                for b in blocks:
+                    if b.get("type") == "tool_results":
+                        block_df = tool_results_to_df(b.get("content"))
+                        if block_df is not None and not block_df.empty:
+                            last_df = block_df
+                    elif b.get("type") == "chart":
+                        chart_spec = b.get("spec")
+
+            fig = msg.get("figure") or chart_spec
             if fig is not None:
-                rl_chart_img = _convert_figure_to_rl_image(fig, width=480, height=230)
+                rl_chart_img = _convert_figure_to_rl_image(fig, df_data=last_df, width=480, height=230)
                 if rl_chart_img:
                     chart_title = Paragraph("<b>📊 Visualization Chart:</b>", meta_style)
                     chart_table = Table([[chart_title], [Spacer(1, 4)], [rl_chart_img]], colWidths=[540])
@@ -345,21 +353,10 @@ def generate_conversation_pdf(
                     elements.append(KeepTogether([chart_table]))
                     elements.append(Spacer(1, 6))
 
-            # Check for Cortex Agent blocks (chart / tool_results)
-            blocks = msg.get("blocks", [])
-            if isinstance(blocks, list):
-                from services.cortex_agent import tool_results_to_df
-                for b in blocks:
-                    if b.get("type") == "tool_results":
-                        block_df = tool_results_to_df(b.get("content"))
-                        if block_df is not None and not block_df.empty:
-                            msg["data"] = block_df
-
-            # Queried Data Table Block
-            data = msg.get("data")
-            if data is not None and isinstance(data, pd.DataFrame) and not data.empty:
+            # Data Table Block
+            if last_df is not None and isinstance(last_df, pd.DataFrame) and not last_df.empty:
                 data_title = Paragraph("<b>📋 Queried Data Table:</b>", meta_style)
-                df_subset = data.head(15)  # Limit rows for PDF layout
+                df_subset = last_df.head(15)
                 cols = list(df_subset.columns)
                 table_rows = [[Paragraph(html.escape(str(c)), table_header_style) for c in cols]]
 
