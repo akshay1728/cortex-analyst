@@ -4,7 +4,7 @@ Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 1. Posts to Cortex Agent REST endpoint with SSE streaming.
 2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
-4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover pop-out animations.
+4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover pop-out animations and distinct multi-color bar/pie palettes.
 """
 
 import json
@@ -207,7 +207,6 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
                     break
                 try:
                     data_obj = json.loads(data_str)
-                    # Log event type and data payload for full stream observability
                     logger.info(f"Cortex Agent SSE Event: type='{current_event}', data={json.dumps(data_obj)}")
                     yield {
                         "event": current_event,
@@ -381,10 +380,11 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
 
 
 def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optional[str] = None):
-    """Render a chart (Vega-Lite spec, Plotly figure, or self-contained spec) via Streamlit with hover pop-out animations."""
+    """Render a chart (Vega-Lite spec, Plotly figure, or self-contained spec) via Streamlit with multi-color palettes and hover animations."""
     if spec_or_fig is None:
         return
 
+    # Path A: Plotly Figure Object
     if hasattr(spec_or_fig, "update_layout") or hasattr(spec_or_fig, "data"):
         try:
             st.plotly_chart(spec_or_fig, use_container_width=True, key=key)
@@ -392,6 +392,7 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         except Exception as e_plotly:
             logger.warning(f"Plotly chart rendering failed: {e_plotly}")
 
+    # Path B: Vega-Lite Chart Spec (string or dict)
     spec_str = spec_or_fig
     try:
         spec = json.loads(spec_str) if isinstance(spec_str, str) else spec_str
@@ -400,11 +401,13 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         return
 
     if isinstance(spec, dict):
+        # 1. Dimensions & padding configuration
         spec["width"] = "container"
         spec["height"] = 340
         spec["padding"] = {"left": 10, "right": 10, "top": 5, "bottom": 10}
         spec["autosize"] = {"type": "fit-x", "contains": "padding"}
 
+        # Title alignment & styling
         if "title" in spec:
             if isinstance(spec["title"], str):
                 spec["title"] = {
@@ -422,6 +425,7 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 spec["title"]["font"] = "Poppins, sans-serif"
                 spec["title"]["color"] = "#242B6B"
 
+        # 2. Add mouseover hover selection parameter
         params = spec.get("params", [])
         has_hover = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
         if not has_hover:
@@ -433,6 +437,18 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
 
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
+            # Enforce multi-color palette for bar / pie / categorical charts
+            x_enc = encoding.get("x", {})
+            cat_field = x_enc.get("field") if isinstance(x_enc, dict) else None
+
+            if "color" not in encoding and cat_field:
+                encoding["color"] = {
+                    "field": cat_field,
+                    "type": "nominal",
+                    "legend": {"orient": "right", "title": str(cat_field).replace("_", " ").title()},
+                    "scale": {"range": ["#242B6B", "#E15241", "#A63A96", "#E0A438", "#3B4394", "#171C4A", "#28A745"]}
+                }
+
             y_enc = encoding.get("y")
             if isinstance(y_enc, dict):
                 scale_cfg = y_enc.get("scale", {})
@@ -453,6 +469,7 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 if tooltip_channels:
                     encoding["tooltip"] = tooltip_channels
 
+            # Add pop-out hover animations (opacity, strokeWidth, size)
             mark = spec.get("mark")
             mark_type = mark if isinstance(mark, str) else (mark.get("type", "bar") if isinstance(mark, dict) else "bar")
 
