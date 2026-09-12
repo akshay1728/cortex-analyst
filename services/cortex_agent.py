@@ -49,7 +49,6 @@ def clean_encoding_artifacts(text: str) -> str:
         text = text.replace(bad, good)
 
     try:
-        # Attempt ftfy/latin1 double-decoding fix if present
         if "Ã" in text or "â" in text:
             fixed = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
             if len(fixed) > 0 and len(fixed) <= len(text):
@@ -83,7 +82,6 @@ def deduplicate_paragraphs(text: str) -> str:
     paragraphs = [p.strip() for p in text_clean.split("\n\n") if p.strip()]
     seen = []
     for p in paragraphs:
-        # Skip internal tool/scratchpad sentences in output text
         if "tool_use_id" in p or "toolu_" in p or "data_to_chart" in p or "successfully created" in p:
             continue
         if p not in seen:
@@ -100,7 +98,6 @@ def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
     3. Snowpark session token fallback.
     """
     try:
-        # 1. Resolve the Host
         snowflake_host = os.environ.get("SNOWFLAKE_HOST")
 
         session = get_snowflake_session()
@@ -113,10 +110,7 @@ def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
                 except Exception:
                     pass
 
-        # 2. Resolve the Token
         token = None
-
-        # Path 1: Container Runtime Native OAuth Token File
         token_path = "/snowflake/session/token"
         if os.path.exists(token_path):
             try:
@@ -125,7 +119,6 @@ def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
             except Exception as e:
                 logger.warning(f"Unable to read container token at {token_path}: {e}")
 
-        # Path 2: Snowpark session token fallback
         if not token and session is not None:
             try:
                 token = session.connection._conn._token
@@ -143,7 +136,7 @@ def get_agent_auth_config() -> Tuple[Optional[str], Optional[str]]:
 
 
 def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None, None]:
-    """POSTs to /api/v2/cortex/agent:run with stream=True, reads SSE stream, yields structured event dicts."""
+    """POSTs to /api/v2/cortex/agent:run with stream=True, reads SSE stream, logs event types and payloads, yields structured event dicts."""
     snowflake_host, token = get_agent_auth_config()
 
     if not snowflake_host or not token:
@@ -164,7 +157,6 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         "Accept": "text/event-stream",
     }
 
-    # Format messages for Cortex Agent REST API
     formatted_api_messages = []
     for m in messages:
         role = m.get("role", "user")
@@ -211,14 +203,18 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
             if line.startswith("data:"):
                 data_str = line[len("data:"):].strip()
                 if data_str == "[DONE]":
+                    logger.info("Cortex Agent SSE stream finished: [DONE]")
                     break
                 try:
                     data_obj = json.loads(data_str)
+                    # Log event type and data payload for full stream observability
+                    logger.info(f"Cortex Agent SSE Event: type='{current_event}', data={json.dumps(data_obj)}")
                     yield {
                         "event": current_event,
                         "data": data_obj
                     }
                 except json.JSONDecodeError:
+                    logger.debug(f"Raw non-JSON data line: {data_str}")
                     continue
 
     except Exception as req_err:
@@ -281,7 +277,6 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
 
         if delta_text:
             delta_clean = clean_encoding_artifacts(delta_text)
-            # Skip internal planning / tool metadata sentences
             if any(term in delta_clean for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
                 text_buf = ""
             else:
@@ -359,7 +354,6 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
     for c in content_items:
         j = c.get("json", {}) if isinstance(c, dict) else {}
 
-        # Path A: query_id / statement_handle with session
         qid = j.get("query_id") or j.get("statement_handle")
         if qid and session is not None:
             try:
@@ -367,7 +361,6 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
             except Exception as e:
                 logger.warning(f"RESULT_SCAN for query_id '{qid}' failed: {e}")
 
-        # Path B: inline result set
         rs = j.get("result_set") or j.get("data", {}).get("result_set")
         if rs and isinstance(rs, dict):
             try:
@@ -381,7 +374,6 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
             except Exception as e_rs:
                 logger.warning(f"Parsing inline result_set failed: {e_rs}")
 
-        # Path C: inline dataframe or direct dict
         if "dataframe" in j and isinstance(j["dataframe"], pd.DataFrame):
             return j["dataframe"]
 
@@ -393,7 +385,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
     if spec_or_fig is None:
         return
 
-    # Path A: Plotly Figure Object
     if hasattr(spec_or_fig, "update_layout") or hasattr(spec_or_fig, "data"):
         try:
             st.plotly_chart(spec_or_fig, use_container_width=True, key=key)
@@ -401,7 +392,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         except Exception as e_plotly:
             logger.warning(f"Plotly chart rendering failed: {e_plotly}")
 
-    # Path B: Vega-Lite Chart Spec (string or dict)
     spec_str = spec_or_fig
     try:
         spec = json.loads(spec_str) if isinstance(spec_str, str) else spec_str
@@ -410,13 +400,11 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         return
 
     if isinstance(spec, dict):
-        # 1. Dimensions & padding configuration
         spec["width"] = "container"
         spec["height"] = 340
         spec["padding"] = {"left": 10, "right": 10, "top": 5, "bottom": 10}
         spec["autosize"] = {"type": "fit-x", "contains": "padding"}
 
-        # Title alignment & styling
         if "title" in spec:
             if isinstance(spec["title"], str):
                 spec["title"] = {
@@ -434,7 +422,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 spec["title"]["font"] = "Poppins, sans-serif"
                 spec["title"]["color"] = "#242B6B"
 
-        # 2. Interactive mouseover hover selection parameter
         params = spec.get("params", [])
         has_hover = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
         if not has_hover:
@@ -444,7 +431,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
             })
             spec["params"] = params
 
-        # 3. Y-axis scaling & pop-out hover encodings
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
             y_enc = encoding.get("y")
@@ -455,7 +441,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 scale_cfg.setdefault("zero", False)
                 y_enc["scale"] = scale_cfg
 
-            # Tooltips on all encoded fields
             if "tooltip" not in encoding:
                 tooltip_channels = []
                 for channel, ch_cfg in encoding.items():
@@ -468,7 +453,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 if tooltip_channels:
                     encoding["tooltip"] = tooltip_channels
 
-            # Add pop-out hover animations (opacity, size, strokeWidth)
             mark = spec.get("mark")
             mark_type = mark if isinstance(mark, str) else (mark.get("type", "bar") if isinstance(mark, dict) else "bar")
 
