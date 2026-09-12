@@ -18,30 +18,6 @@ from services.snowflake_connection import get_snowflake_session
 
 logger = logging.getLogger("settings_service")
 
-DEFAULT_SUGGESTED_QUESTIONS = [
-    "What is our overall OEE trend over time?",
-    "Compare OEE by plant",
-    "Which line has the highest downtime?",
-    "What are the top downtime causes?",
-    "Show quality rate by product family",
-    "Show breakdown of good vs defective units"
-]
-
-DEFAULT_SETTINGS = {
-    "header_title": "OEE AI Assistant",
-    "header_subtitle": "Ask natural language questions about plant performance, equipment availability, line productivity, and downtime root causes — powered by Cortex Analyst.",
-    "pdf_filename_template": "OEE_Conversation_Report_{YYYYMMDD}.pdf",
-    "semantic_view": "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS",
-    "warehouse_name": "WH_APPS",
-    "analyst_tool_name": "traksys_analyst",
-    "orchestration_model": "claude-sonnet-4-5",
-    "history_count": 10,
-    "oee_target": 85.0,
-    "availability_target": 90.0,
-    "performance_target": 95.0,
-    "quality_target": 99.0
-}
-
 
 def _get_current_username() -> str:
     """Get active username or default string."""
@@ -54,7 +30,7 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
     """Fetch suggested questions from Snowflake DB via stored procedure SP_TRAKSYS_GET_QUESTIONS()."""
     session = get_snowflake_session()
     if session is None:
-        return [{"id": i+1, "text": q, "order": i+1, "created_by": "DEFAULT", "updated_by": "DEFAULT"} for i, q in enumerate(DEFAULT_SUGGESTED_QUESTIONS)]
+        return []
 
     try:
         df = session.sql("CALL SP_TRAKSYS_GET_QUESTIONS()").to_pandas()
@@ -68,12 +44,11 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
                     "created_by": str(row.get("CREATED_BY", "UNKNOWN")),
                     "updated_by": str(row.get("UPDATED_BY", "UNKNOWN"))
                 })
-            if questions:
-                return questions
+            return questions
     except Exception as e:
         logger.warning(f"Unable to call SP_TRAKSYS_GET_QUESTIONS(): {e}")
 
-    return [{"id": i+1, "text": q, "order": i+1, "created_by": "DEFAULT", "updated_by": "DEFAULT"} for i, q in enumerate(DEFAULT_SUGGESTED_QUESTIONS)]
+    return []
 
 
 def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int = 1, user: Optional[str] = None) -> bool:
@@ -110,7 +85,7 @@ def delete_suggested_question_from_db(q_id: int, user: Optional[str] = None) -> 
 
 def load_app_settings_from_db() -> Dict[str, Any]:
     """Load settings key-values and logo blob from Snowflake DB via stored procedure SP_TRAKSYS_GET_APP_SETTINGS()."""
-    settings = dict(DEFAULT_SETTINGS)
+    settings = {}
     logo_bytes = None
 
     session = get_snowflake_session()
