@@ -543,7 +543,7 @@ else:
 
             is_latest = (idx == latest_assistant_idx)
             with st.expander(_response_label(idx), expanded=is_latest):
-                main_msg, suggestions = split_suggestions(disp_text)
+                main_msg, suggestions_from_text = split_suggestions(disp_text)
                 clean_main_msg = deduplicate_paragraphs(main_msg)
                 if clean_main_msg:
                     st.markdown(clean_main_msg)
@@ -552,6 +552,8 @@ else:
                     st.markdown("**🛠️ Cortex Analyst Generated SQL Query**")
                     st.code(msg["sql_query"], language="sql")
 
+                # Track queries from blocks
+                suggested_queries = list(suggestions_from_text)
                 if "blocks" in msg and isinstance(msg["blocks"], list):
                     last_df = msg.get("data")
                     for b_idx, b in enumerate(msg["blocks"]):
@@ -566,19 +568,25 @@ else:
                                 st.markdown("**📋 Queried Data Table**")
                                 styled_df = style_dataframe_metrics(tool_df, st.session_state.settings_colors)
                                 st.dataframe(styled_df, use_container_width=True, key=f"hist_tool_df_{idx}_{b_idx}")
+                        elif b.get("type") == "suggested_queries":
+                            for q_item in b.get("queries", []):
+                                if q_item not in suggested_queries:
+                                    suggested_queries.append(q_item)
 
                 elif "data" in msg and msg["data"] is not None and not msg["data"].empty:
                     st.markdown("**📋 Queried Data Table**")
                     styled_df = style_dataframe_metrics(msg["data"], st.session_state.settings_colors)
                     st.dataframe(styled_df, use_container_width=True, key=f"hist_df_{idx}")
 
-                if suggestions:
+                # Display suggested query buttons ONLY if this is the active latest assistant message
+                if is_latest and suggested_queries:
                     st.markdown("**💡 Suggested Follow-ups:**")
-                    s_cols = st.columns(min(len(suggestions), 3))
-                    for s_i, sug in enumerate(suggestions):
+                    s_cols = st.columns(min(len(suggested_queries), 3))
+                    for s_i, sug in enumerate(suggested_queries):
                         c_idx = s_i % len(s_cols)
                         if s_cols[c_idx].button(f"🔍 {sug}", key=f"hist_sug_{idx}_{s_i}"):
                             submit_question(sug)
+                            st.rerun()
 
     # Handle Chat Input or Sample Question Click
     user_input = st.chat_input("Ask an OEE question (e.g. 'Show OEE trend by plant over time')")
@@ -614,10 +622,11 @@ else:
                 raw_display_text = "\n\n".join(text_parts) if text_parts else ""
                 display_text = deduplicate_paragraphs(raw_display_text)
 
-                main_t, act_suggestions = split_suggestions(display_text)
+                main_t, text_sug = split_suggestions(display_text)
                 if main_t:
                     st.markdown(main_t)
 
+                act_suggestions = list(text_sug)
                 for b_idx, b in enumerate(blocks):
                     if b["type"] == "tool_results":
                         latest_df = tool_results_to_df(b["content"])
@@ -629,6 +638,10 @@ else:
                         st.markdown("**📊 Visualization Chart**")
                         chart_target = b.get("spec") or b.get("figure")
                         render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
+                    elif b["type"] == "suggested_queries":
+                        for sq in b.get("queries", []):
+                            if sq not in act_suggestions:
+                                act_suggestions.append(sq)
 
                 if act_suggestions:
                     st.markdown("**💡 Suggested Follow-ups:**")
@@ -637,6 +650,7 @@ else:
                         c_idx = s_i % len(s_cols)
                         if s_cols[c_idx].button(f"🔍 {sug}", key=f"act_sug_{active_idx}_{s_i}"):
                             submit_question(sug)
+                            st.rerun()
 
             st.session_state.messages.append({
                 "role": "assistant",

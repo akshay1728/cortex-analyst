@@ -2,7 +2,7 @@
 
 Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 1. Posts to Cortex Agent REST endpoint with SSE streaming.
-2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
+2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart, suggested_queries).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
 4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover pop-out animations and distinct multi-color bar/pie palettes.
 """
@@ -229,11 +229,13 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Discards internal thinking/reasoning events and strictly extracts user-facing answer text deltas (`response.text.delta`).
+    Filter out internal planning/reasoning/tool metadata steps while preserving final user-facing text,
+    tables, charts, and `response.suggested_queries`.
     """
     text_buf = ""
     blocks = []
     seen_chart_specs = set()
+    suggested_queries_list = []
 
     for evt_wrapper in events:
         evt_type = evt_wrapper.get("event")
@@ -241,9 +243,9 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         if not isinstance(data, dict):
             continue
 
-        # --- Filter out internal thinking / planning status events ---
+        # --- Status / Planning Events ---
         status = data.get("status") or (data.get("data", {}).get("status") if isinstance(data.get("data"), dict) else None)
-        if status in ("planning", "reevaluating_plan", "thinking"):
+        if status in ("planning", "reevaluating_plan"):
             text_buf = ""
             blocks = [b for b in blocks if b["type"] != "text"]
             continue
@@ -259,6 +261,15 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                 j = inner[0].get("json", {})
                 if "custom_instructions" in j:
                     continue
+
+        # --- Extract response.suggested_queries ---
+        if evt_type == "response.suggested_queries" or "suggested_queries" in data or "suggestions" in data:
+            sq_items = data.get("suggested_queries") or data.get("suggestions") or data.get("data", {}).get("suggested_queries")
+            if isinstance(sq_items, list):
+                for sq in sq_items:
+                    q_str = sq.get("query") if isinstance(sq, dict) else str(sq)
+                    if q_str and q_str not in suggested_queries_list:
+                        suggested_queries_list.append(clean_encoding_artifacts(q_str))
 
         # --- Extract Text Delta strictly for user-facing answer text ---
         delta_text = None
@@ -276,7 +287,6 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
 
         if delta_text:
             delta_clean = clean_encoding_artifacts(delta_text)
-            # Filter internal tool call / scratchpad sentences
             if any(term in delta_clean for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
                 text_buf = ""
             else:
@@ -324,6 +334,13 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         final_clean = deduplicate_paragraphs(text_buf)
         if final_clean:
             blocks.append({"type": "text", "text": final_clean})
+
+    # Add suggested queries block if available
+    if suggested_queries_list:
+        blocks.append({
+            "type": "suggested_queries",
+            "queries": suggested_queries_list
+        })
 
     # Fallback chart generation ONLY if no chart block exists
     has_chart = any(b.get("type") == "chart" for b in blocks)
