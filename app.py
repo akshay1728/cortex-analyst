@@ -146,18 +146,25 @@ st.markdown(f"""
         padding-bottom: 2.5rem;
     }}
 
+    /* Compact Heading Sizes & Colored Headers inside Chat Messages */
+    div[data-testid="stChatMessage"] h1 {{ font-size: 1.15rem !important; color: {BRAND['navy']} !important; margin-top: 0.5rem; margin-bottom: 0.3rem; font-weight: 700; }}
+    div[data-testid="stChatMessage"] h2 {{ font-size: 1.05rem !important; color: {BRAND['navy']} !important; margin-top: 0.4rem; margin-bottom: 0.3rem; font-weight: 700; }}
+    div[data-testid="stChatMessage"] h3 {{ font-size: 0.98rem !important; color: {BRAND['navy']} !important; margin-top: 0.4rem; margin-bottom: 0.2rem; font-weight: 700; }}
+    div[data-testid="stChatMessage"] h4 {{ font-size: 0.92rem !important; color: {BRAND['navy_light']} !important; margin-top: 0.3rem; margin-bottom: 0.2rem; font-weight: 600; }}
+    div[data-testid="stChatMessage"] strong, div[data-testid="stChatMessage"] b {{ color: {BRAND['navy_deep']}; }}
+
     /* Custom Bullet and Sub-bullet Icons for Assistant Responses */
     div[data-testid="stChatMessage"] ul {{
         list-style: none !important;
-        padding-left: 1.2rem !important;
-        margin-top: 0.4rem;
-        margin-bottom: 0.6rem;
+        padding-left: 1.1rem !important;
+        margin-top: 0.3rem;
+        margin-bottom: 0.5rem;
     }}
     div[data-testid="stChatMessage"] ul > li {{
         position: relative;
         padding-left: 1.2rem;
-        margin-bottom: 0.35rem;
-        line-height: 1.5;
+        margin-bottom: 0.3rem;
+        line-height: 1.45;
     }}
     div[data-testid="stChatMessage"] ul > li::before {{
         content: "🔹";
@@ -168,14 +175,14 @@ st.markdown(f"""
     }}
     div[data-testid="stChatMessage"] ul > li > ul {{
         list-style: none !important;
-        padding-left: 1.0rem !important;
-        margin-top: 0.3rem;
-        margin-bottom: 0.3rem;
+        padding-left: 0.9rem !important;
+        margin-top: 0.25rem;
+        margin-bottom: 0.25rem;
     }}
     div[data-testid="stChatMessage"] ul > li > ul > li {{
         position: relative;
         padding-left: 1.1rem;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.2rem;
     }}
     div[data-testid="stChatMessage"] ul > li > ul > li::before {{
         content: "▸";
@@ -384,7 +391,7 @@ analyst_service = CortexAnalystService(df_raw)
 cortex_ai_service = CortexAIService()
 
 # --------------------------------------------------------------------------
-# Render Logo in Sidebar
+# Render Logo in Sidebar Top
 # --------------------------------------------------------------------------
 if st.session_state.settings_custom_logo_bytes is not None:
     logo_b64_str = base64.b64encode(st.session_state.settings_custom_logo_bytes).decode("utf-8")

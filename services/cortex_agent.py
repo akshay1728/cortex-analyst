@@ -229,7 +229,7 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Deduplicates chart blocks and filters out internal planning/reasoning metadata.
+    Discards internal thinking/reasoning events and strictly extracts user-facing answer text deltas (`response.text.delta`).
     """
     text_buf = ""
     blocks = []
@@ -241,9 +241,9 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         if not isinstance(data, dict):
             continue
 
-        # --- Status / Planning Events ---
+        # --- Filter out internal thinking / planning status events ---
         status = data.get("status") or (data.get("data", {}).get("status") if isinstance(data.get("data"), dict) else None)
-        if status in ("planning", "reevaluating_plan"):
+        if status in ("planning", "reevaluating_plan", "thinking"):
             text_buf = ""
             blocks = [b for b in blocks if b["type"] != "text"]
             continue
@@ -260,7 +260,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                 if "custom_instructions" in j:
                     continue
 
-        # --- Extract Text Delta ---
+        # --- Extract Text Delta strictly for user-facing answer text ---
         delta_text = None
 
         if evt_type in ("response.text.delta", "text.delta", "message.delta"):
@@ -271,11 +271,12 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                     if item.get("type") == "text":
                         delta_text = (delta_text or "") + item.get("text", "")
 
-        elif "text" in data and ("content_index" in data or evt_type is None):
+        elif "text" in data and ("content_index" in data):
             delta_text = data["text"]
 
         if delta_text:
             delta_clean = clean_encoding_artifacts(delta_text)
+            # Filter internal tool call / scratchpad sentences
             if any(term in delta_clean for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
                 text_buf = ""
             else:
