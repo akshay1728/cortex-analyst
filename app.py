@@ -26,6 +26,8 @@ from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
+from services.cortex_analyst import CortexAnalystService
+from services.cortex_ai import CortexAIService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("oee_streamlit_app")
@@ -435,11 +437,11 @@ else:
     debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
     # Filter Dataset
-    df_filtered = analyst_service._apply_filters(df_raw, filters)
+    df_filtered = analyst_service._apply_filters(df_raw, filters) if not df_raw.empty else df_raw
 
     # KPI Cards using settings targets
     st.markdown('<div class="section-label">📊 Plant Performance Overview</div>', unsafe_allow_html=True)
-    kpis = calculate_aggregated_oee(df_filtered)
+    kpis = calculate_aggregated_oee(df_filtered) if not df_filtered.empty else {"oee": 0.0, "availability": 0.0, "performance": 0.0, "quality": 0.0, "total_downtime_hours": 0.0}
     render_kpi_cards(kpis, st.session_state.settings_targets)
 
     st.divider()
@@ -555,7 +557,6 @@ else:
                     blocks = collect_response(events)
 
                 latest_df = None
-                display_text = ""
                 active_idx = len(st.session_state.messages)
 
                 # Concatenate all text blocks into single response text to prevent duplicate chunks
