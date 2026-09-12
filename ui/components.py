@@ -124,8 +124,13 @@ def render_sample_questions(on_click_callback):
 
     cols = st.columns(3)
     for idx, q in enumerate(sample_questions):
-        if cols[idx % 3].button(q, key=f"sq_{idx}", use_container_width=True):
-            on_click_callback(q)
+        cols[idx % 3].button(
+            q,
+            key=f"sq_{idx}",
+            use_container_width=True,
+            on_click=on_click_callback,
+            args=(q,)
+        )
 
 
 def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
