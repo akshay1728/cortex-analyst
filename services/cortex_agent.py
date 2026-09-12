@@ -338,8 +338,11 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
 def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
-    Filter out internal planning/reasoning/tool metadata steps while preserving final user-facing text,
-    tables, charts, and `response.suggested_queries`.
+    Filter out thinking/reasoning/planning events (`response.thinking`, etc.) and process strictly:
+    - `response.text.delta` (for answer text)
+    - `response.table` / `response.tool_results` (for data tables)
+    - `response.chart` (for Vega/Plotly charts)
+    - `response.suggested_queries` (for follow-up questions)
     """
     text_buf = ""
     blocks = []
@@ -347,12 +350,15 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
     suggested_queries_list = []
 
     for evt_wrapper in events:
-        evt_type = evt_wrapper.get("event")
+        evt_type = str(evt_wrapper.get("event", ""))
         data = evt_wrapper.get("data", {})
         if not isinstance(data, dict):
             continue
 
-        # --- Status / Planning Events ---
+        # Ignore thinking, reasoning, status, or system planning events
+        if "thinking" in evt_type.lower() or "reasoning" in evt_type.lower() or data.get("type") in ("thinking", "response.thinking"):
+            continue
+
         status = data.get("status") or (data.get("data", {}).get("status") if isinstance(data.get("data"), dict) else None)
         if status in ("planning", "reevaluating_plan"):
             text_buf = ""
@@ -380,7 +386,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                     if q_str and q_str not in suggested_queries_list:
                         suggested_queries_list.append(clean_encoding_artifacts(q_str))
 
-        # --- Extract Text Delta strictly for user-facing answer text ---
+        # --- Extract Text Delta strictly for response.text.delta ---
         delta_text = None
 
         if evt_type in ("response.text.delta", "text.delta", "message.delta"):
@@ -391,8 +397,8 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                     if item.get("type") == "text":
                         delta_text = (delta_text or "") + item.get("text", "")
 
-        elif "text" in data and ("content_index" in data):
-            delta_text = data["text"]
+        elif evt_type == "response.text" or ("text" in data and "content_index" in data):
+            delta_text = data.get("text")
 
         if delta_text:
             delta_clean = clean_encoding_artifacts(delta_text)
@@ -401,9 +407,9 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             else:
                 text_buf += delta_clean
 
-        # --- Extract Tool Results / Data ---
+        # --- Extract Tool Results / Data strictly for response.table / response.tool_results ---
         is_tool_res = (
-            evt_type in ("response.tool_results", "tool_results") or
+            evt_type in ("response.table", "response.tool_results", "tool_results") or
             "result_set" in data or
             "query_id" in data or
             "statement_handle" in data
@@ -421,14 +427,14 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                 "content": tool_content
             })
 
-        # --- Extract Chart ---
+        # --- Extract Chart strictly for response.chart ---
         chart_spec = (
             data.get("chart_spec") or
             data.get("chart", {}).get("chart_spec") or
             (data.get("delta", {}).get("chart", {}).get("chart_spec") if isinstance(data.get("delta"), dict) else None) or
-            (data.get("spec") if "chart" in str(evt_type).lower() or "chart" in data else None)
+            (data.get("spec") if "chart" in evt_type.lower() or "chart" in data else None)
         )
-        if chart_spec:
+        if chart_spec and (evt_type in ("response.chart", "chart") or "chart" in evt_type.lower() or "chart_spec" in data or "chart" in data):
             spec_key = str(chart_spec)
             if spec_key not in seen_chart_specs:
                 seen_chart_specs.add(spec_key)
