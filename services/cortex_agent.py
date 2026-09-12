@@ -98,11 +98,6 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         return
 
     agent_endpoint = f"https://{snowflake_host}/api/v2/cortex/agent:run"
-    headers = {
-        "Authorization": f'Snowflake Token="{token}"',
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-    }
 
     # Format messages for Cortex Agent REST API
     formatted_api_messages = []
@@ -129,10 +124,49 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         },
     }
 
-    try:
-        resp = requests.post(agent_endpoint, headers=headers, json=payload, stream=True, timeout=60)
-        resp.raise_for_status()
+    # Try auth header schemes: 'Snowflake Token="..."' and 'Bearer ...'
+    auth_headers_to_try = [
+        {"Authorization": f'Snowflake Token="{token}"', "Content-Type": "application/json", "Accept": "text/event-stream"},
+        {"Authorization": f'Bearer {token}', "Content-Type": "application/json", "Accept": "text/event-stream"},
+    ]
 
+    resp = None
+    last_err = None
+
+    for headers in auth_headers_to_try:
+        try:
+            r = requests.post(agent_endpoint, headers=headers, json=payload, stream=True, timeout=60)
+            if r.status_code == 401:
+                logger.info("401 Unauthorized with auth header scheme. Trying alternative auth scheme...")
+                last_err = requests.HTTPError(f"401 Client Error: Unauthorized for url: {agent_endpoint}", response=r)
+                continue
+            r.raise_for_status()
+            resp = r
+            break
+        except requests.HTTPError as h_err:
+            last_err = h_err
+            if h_err.response is not None and h_err.response.status_code == 401:
+                continue
+            raise h_err
+
+    if resp is None and last_err is not None:
+        logger.error(f"Cortex Agent API request failed: {last_err}.")
+        yield {
+            "event": "message.delta",
+            "data": {
+                "delta": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"❌ **Cortex Agent Error**: {last_err}"
+                        }
+                    ]
+                }
+            }
+        }
+        return
+
+    try:
         for line in resp.iter_lines(decode_unicode=True):
             if not line or not line.startswith("data:"):
                 continue
@@ -145,7 +179,7 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
                 continue
 
     except Exception as req_err:
-        logger.error(f"Cortex Agent API request failed: {req_err}.")
+        logger.error(f"Cortex Agent API stream reading failed: {req_err}.")
         yield {
             "event": "message.delta",
             "data": {
