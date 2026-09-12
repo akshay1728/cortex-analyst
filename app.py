@@ -21,7 +21,7 @@ import numpy as np
 
 from config import APP_TITLE, APP_ICON
 from data.sample_data import calculate_aggregated_oee
-from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs
+from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions, style_dataframe_metrics
@@ -340,6 +340,7 @@ st.markdown(f"""
         border: 1px solid {BRAND['border']} !important;
     }}
 
+    /* Expanders used elsewhere in the app (outside chat) keep their own card look */
     div[data-testid="stExpander"] {{
         border-radius: 12px !important;
         border: 1px solid {BRAND['border']} !important;
@@ -350,6 +351,67 @@ st.markdown(f"""
     div[data-testid="stExpander"] summary {{
         font-weight: 600;
         color: {BRAND['navy']};
+    }}
+
+    /* The chat bubble is already the card — flatten the expander nested inside it
+       so the response doesn't sit inside a second, redundant border/shadow. */
+    div[data-testid="stChatMessage"] div[data-testid="stExpander"] {{
+        border: none !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        overflow: visible;
+    }}
+    div[data-testid="stChatMessage"] div[data-testid="stExpander"] summary {{
+        padding-left: 2px;
+    }}
+    div[data-testid="stChatMessage"] div[data-testid="stExpander"] > div {{
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding-left: 2px;
+        padding-right: 2px;
+    }}
+
+    /* KPI badges inside assistant responses (color-coded vs. target) */
+    div[data-testid="stChatMessage"] .oee-badge {{
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 10px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 0.88em;
+        white-space: nowrap;
+    }}
+    div[data-testid="stChatMessage"] .oee-badge-value {{ background: {BRAND['panel']}; color: {BRAND['navy']}; }}
+
+    /* Icon section headers within assistant responses — flat, single rule, no boxed border */
+    div[data-testid="stChatMessage"] .oee-section-header {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'Poppins', sans-serif;
+        font-weight: 700;
+        color: {BRAND['navy']};
+        font-size: 0.98rem;
+        margin: 16px 0 8px 0;
+        padding-bottom: 6px;
+        border-bottom: 2px solid {BRAND['border']};
+    }}
+    div[data-testid="stChatMessage"] .oee-section-header .icon {{
+        font-size: 1.05rem;
+    }}
+
+    /* Sub-section labels used for chart/table/SQL/follow-up blocks */
+    .oee-subsection {{
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-weight: 700;
+        color: {BRAND['navy_light']};
+        font-size: 0.9rem;
+        margin: 14px 0 6px 0;
     }}
 
     .section-label {{
@@ -541,6 +603,16 @@ else:
             return " ".join([item.get("text", "") for item in content if isinstance(item, dict) and item.get("type") == "text"])
         return str(content)
 
+    def _render_response_text(raw_text: str):
+        """Apply KPI-badge + section-header formatting, then render as HTML-enabled markdown."""
+        if not raw_text:
+            return
+        formatted = format_oee_markdown(raw_text)
+        st.markdown(formatted, unsafe_allow_html=True)
+
+    def _subsection(icon: str, label: str):
+        st.markdown(f'<div class="oee-subsection">{icon} {label}</div>', unsafe_allow_html=True)
+
     def _response_label(idx: int) -> str:
         if idx > 0 and st.session_state.messages[idx - 1]["role"] == "user":
             q = _get_display_str(st.session_state.messages[idx - 1]).strip()
@@ -561,10 +633,10 @@ else:
                 main_msg, suggestions_from_text = split_suggestions(disp_text)
                 clean_main_msg = deduplicate_paragraphs(main_msg)
                 if clean_main_msg:
-                    st.markdown(clean_main_msg)
+                    _render_response_text(clean_main_msg)
 
                 if "sql_query" in msg and msg["sql_query"]:
-                    st.markdown("**🛠️ Cortex Analyst Generated SQL Query**")
+                    _subsection("🛠️", "Cortex Analyst Generated SQL Query")
                     st.code(msg["sql_query"], language="sql")
 
                 # Track queries from blocks
@@ -573,14 +645,14 @@ else:
                     last_df = msg.get("data")
                     for b_idx, b in enumerate(msg["blocks"]):
                         if b.get("type") == "chart":
-                            st.markdown("**📊 Visualization Chart**")
+                            _subsection("📊", "Visualization Chart")
                             chart_target = b.get("spec") or b.get("figure")
                             render_chart(chart_target, last_df, key=f"hist_cortex_chart_{idx}_{b_idx}")
                         elif b.get("type") == "tool_results":
                             tool_df = tool_results_to_df(b.get("content"))
                             if tool_df is not None and not tool_df.empty:
                                 last_df = tool_df
-                                st.markdown("**📋 Queried Data Table**")
+                                _subsection("📋", "Queried Data Table")
                                 styled_df = style_dataframe_metrics(tool_df, st.session_state.settings_colors)
                                 st.dataframe(styled_df, use_container_width=True, key=f"hist_tool_df_{idx}_{b_idx}")
                         elif b.get("type") == "suggested_queries":
@@ -589,13 +661,13 @@ else:
                                     suggested_queries.append(q_item)
 
                 elif "data" in msg and msg["data"] is not None and not msg["data"].empty:
-                    st.markdown("**📋 Queried Data Table**")
+                    _subsection("📋", "Queried Data Table")
                     styled_df = style_dataframe_metrics(msg["data"], st.session_state.settings_colors)
                     st.dataframe(styled_df, use_container_width=True, key=f"hist_df_{idx}")
 
                 # Display suggested query buttons ONLY if this is the active latest assistant message
                 if is_latest and suggested_queries:
-                    st.markdown("**💡 Suggested Follow-ups:**")
+                    _subsection("💡", "Suggested Follow-ups")
                     s_cols = st.columns(min(len(suggested_queries), 3))
                     for s_i, sug in enumerate(suggested_queries):
                         c_idx = s_i % len(s_cols)
@@ -631,18 +703,18 @@ else:
 
                 main_t, text_sug = split_suggestions(display_text)
                 if main_t:
-                    st.markdown(main_t)
+                    _render_response_text(main_t)
 
                 act_suggestions = list(text_sug)
                 for b_idx, b in enumerate(blocks):
                     if b["type"] == "tool_results":
                         latest_df = tool_results_to_df(b["content"])
                         if latest_df is not None and not latest_df.empty:
-                            st.markdown("**📋 Queried Data Table**")
+                            _subsection("📋", "Queried Data Table")
                             styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
                             st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
                     elif b["type"] == "chart":
-                        st.markdown("**📊 Visualization Chart**")
+                        _subsection("📊", "Visualization Chart")
                         chart_target = b.get("spec") or b.get("figure")
                         render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
                     elif b["type"] == "suggested_queries":
@@ -651,7 +723,7 @@ else:
                                 act_suggestions.append(sq)
 
                 if act_suggestions:
-                    st.markdown("**💡 Suggested Follow-ups:**")
+                    _subsection("💡", "Suggested Follow-ups")
                     s_cols = st.columns(min(len(act_suggestions), 3))
                     for s_i, sug in enumerate(act_suggestions):
                         c_idx = s_i % len(s_cols)
@@ -699,7 +771,7 @@ with st.sidebar:
         f"""
         <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid {BRAND['border']};
                     font-size: 0.75rem; color: {BRAND['muted']}; text-align:center;">
-            Manufacturing Analytics Assistant<br/>Built on Snowflake Cortex
+            Manufacturing Analytics Assistant<br/>
         </div>
         """,
         unsafe_allow_html=True,
