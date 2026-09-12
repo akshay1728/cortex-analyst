@@ -509,7 +509,8 @@ else:
                     for b_idx, b in enumerate(msg["blocks"]):
                         if b.get("type") == "chart":
                             st.markdown("**📊 Visualization Chart**")
-                            render_chart(b.get("spec"), last_df, key=f"hist_cortex_chart_{idx}_{b_idx}")
+                            chart_target = b.get("spec") or b.get("figure")
+                            render_chart(chart_target, last_df, key=f"hist_cortex_chart_{idx}_{b_idx}")
                         elif b.get("type") == "tool_results":
                             tool_df = tool_results_to_df(b.get("content"))
                             if tool_df is not None and not tool_df.empty:
@@ -578,7 +579,8 @@ else:
                             st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
                     elif b["type"] == "chart":
                         st.markdown("**📊 Visualization Chart**")
-                        render_chart(b["spec"], latest_df, key=f"act_chart_{active_idx}_{b_idx}")
+                        chart_target = b.get("spec") or b.get("figure")
+                        render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
 
                 if act_suggestions:
                     st.markdown("**💡 Suggested Follow-ups:**")

@@ -269,7 +269,8 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
         chart_spec = (
             data.get("chart_spec") or
             data.get("chart", {}).get("chart_spec") or
-            (data.get("delta", {}).get("chart", {}).get("chart_spec") if isinstance(data.get("delta"), dict) else None)
+            (data.get("delta", {}).get("chart", {}).get("chart_spec") if isinstance(data.get("delta"), dict) else None) or
+            (data.get("spec") if "chart" in str(evt_type).lower() or "chart" in data else None)
         )
         if chart_spec:
             if text_buf:
@@ -279,6 +280,21 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
 
     if text_buf:
         blocks.append({"type": "text", "text": deduplicate_paragraphs(text_buf)})
+
+    # Fallback chart generation if a tool_results table was returned without an explicit chart spec
+    has_chart = any(b.get("type") == "chart" for b in blocks)
+    if not has_chart:
+        for b in blocks:
+            if b.get("type") == "tool_results":
+                df = tool_results_to_df(b.get("content"))
+                if df is not None and isinstance(df, pd.DataFrame) and not df.empty and len(df.columns) >= 2:
+                    try:
+                        from visualization.chart_generator import generate_chart
+                        chart_res = generate_chart("OEE Analytics Chart", df)
+                        if chart_res and chart_res.should_visualize and chart_res.figure:
+                            blocks.append({"type": "chart", "figure": chart_res.figure})
+                    except Exception as e_chart:
+                        logger.warning(f"Automatic chart fallback generation failed: {e_chart}")
 
     return blocks
 
@@ -326,8 +342,21 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
     return None
 
 
-def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional[str] = None):
-    """Render a chart spec (self-contained OR spec + injected df) via st.vega_lite_chart with mouseover hover animation and proper dimensions."""
+def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optional[str] = None):
+    """Render a chart (Vega-Lite spec, Plotly figure, or self-contained spec) via Streamlit."""
+    if spec_or_fig is None:
+        return
+
+    # Path A: Plotly Figure Object
+    if hasattr(spec_or_fig, "update_layout") or hasattr(spec_or_fig, "data"):
+        try:
+            st.plotly_chart(spec_or_fig, use_container_width=True, key=key)
+            return
+        except Exception as e_plotly:
+            logger.warning(f"Plotly chart rendering failed: {e_plotly}")
+
+    # Path B: Vega-Lite Chart Spec (string or dict)
+    spec_str = spec_or_fig
     try:
         spec = json.loads(spec_str) if isinstance(spec_str, str) else spec_str
     except Exception as parse_err:
@@ -355,7 +384,6 @@ def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional
         # Add interactive tooltip and hover opacity encoding to marks
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
-            # Ensure tooltips are enabled on all channels
             if "tooltip" not in encoding:
                 tooltip_channels = []
                 for channel, ch_cfg in encoding.items():
@@ -364,7 +392,6 @@ def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional
                 if tooltip_channels:
                     encoding["tooltip"] = tooltip_channels
 
-            # Add hover opacity condition if mark is bar, point, line, or area
             mark = spec.get("mark")
             if isinstance(mark, str):
                 spec["mark"] = {
@@ -382,5 +409,7 @@ def render_chart(spec_str: str, df: Optional[pd.DataFrame] = None, key: Optional
         st.vega_lite_chart(spec, use_container_width=True, key=key)
     elif df is not None and not df.empty:
         st.vega_lite_chart(df, spec, use_container_width=True, key=key)
+    elif isinstance(spec, dict):
+        st.vega_lite_chart(spec, use_container_width=True, key=key)
     else:
         st.warning("Chart spec received but no data to plot.")
