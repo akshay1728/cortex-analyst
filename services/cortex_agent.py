@@ -4,7 +4,7 @@ Integrates Snowflake Cortex Agent REST API (/api/v2/cortex/agent:run):
 1. Posts to Cortex Agent REST endpoint with SSE streaming.
 2. Collects streamed delta fragments into ordered content blocks (text, tool_results, chart).
 3. Converts tool_results (query_id or inline result_set) to Pandas DataFrames.
-4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover animations.
+4. Renders Vega-Lite / Plotly charts (self-contained specs or data-injected specs) with interactive hover pop-out animations.
 """
 
 import json
@@ -26,11 +26,46 @@ if not logger.handlers:
     logger.addHandler(_handler)
 
 
+def clean_encoding_artifacts(text: str) -> str:
+    """Fix mojibake encoding artifacts (e.g. 'Ã' -> '×', 'Ã©' -> 'é')."""
+    if not text or not isinstance(text, str):
+        return text or ""
+
+    replacements = {
+        "Ã": "×",
+        "Ã©": "é",
+        "Ã ": "à",
+        "Ã¨": "è",
+        "Ã´": "ô",
+        "Ã®": "î",
+        "â": "–",
+        "â": "—",
+        "â": '"',
+        "â": '"',
+        "â": "'",
+        "â¢": "•"
+    }
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    try:
+        # Attempt ftfy/latin1 double-decoding fix if present
+        if "Ã" in text or "â" in text:
+            fixed = text.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            if len(fixed) > 0 and len(fixed) <= len(text):
+                text = fixed
+    except Exception:
+        pass
+
+    return text
+
+
 def split_suggestions(text: str) -> Tuple[str, List[str]]:
     """Return (main_text, [suggestions]) by extracting a trailing [SUGGESTIONS] block."""
-    parts = re.split(r'\n?\[SUGGESTIONS\]\s*', text, maxsplit=1)
+    text_clean = clean_encoding_artifacts(text)
+    parts = re.split(r'\n?\[SUGGESTIONS\]\s*', text_clean, maxsplit=1)
     if len(parts) == 1:
-        return text.strip(), []
+        return text_clean.strip(), []
     main, block = parts
     suggestions = [
         line.lstrip("-* ").strip()
@@ -41,10 +76,11 @@ def split_suggestions(text: str) -> Tuple[str, List[str]]:
 
 
 def deduplicate_paragraphs(text: str) -> str:
-    """Remove exact or near-duplicate consecutive/repeated paragraphs from text."""
+    """Remove exact or near-duplicate consecutive/repeated paragraphs from text and clean encoding artifacts."""
     if not text:
         return ""
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    text_clean = clean_encoding_artifacts(text)
+    paragraphs = [p.strip() for p in text_clean.split("\n\n") if p.strip()]
     seen = []
     for p in paragraphs:
         # Skip internal tool/scratchpad sentences in output text
@@ -244,11 +280,12 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             delta_text = data["text"]
 
         if delta_text:
+            delta_clean = clean_encoding_artifacts(delta_text)
             # Skip internal planning / tool metadata sentences
-            if any(term in delta_text for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
+            if any(term in delta_clean for term in ("Present the table", "Looking at the data again:", "Now I need to:", "tool_use_id", "toolu_", "data_to_chart")):
                 text_buf = ""
             else:
-                text_buf += delta_text
+                text_buf += delta_clean
 
         # --- Extract Tool Results / Data ---
         is_tool_res = (
@@ -352,7 +389,7 @@ def tool_results_to_df(tool_results: Any) -> Optional[pd.DataFrame]:
 
 
 def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optional[str] = None):
-    """Render a chart (Vega-Lite spec, Plotly figure, or self-contained spec) via Streamlit."""
+    """Render a chart (Vega-Lite spec, Plotly figure, or self-contained spec) via Streamlit with hover pop-out animations."""
     if spec_or_fig is None:
         return
 
@@ -373,13 +410,13 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
         return
 
     if isinstance(spec, dict):
-        # 1. Eliminate large top title gap and fix Y-axis scaling
+        # 1. Dimensions & padding configuration
         spec["width"] = "container"
-        spec["height"] = 320
+        spec["height"] = 340
         spec["padding"] = {"left": 10, "right": 10, "top": 5, "bottom": 10}
         spec["autosize"] = {"type": "fit-x", "contains": "padding"}
 
-        # Configure Title position tightly to chart top
+        # Title alignment & styling
         if "title" in spec:
             if isinstance(spec["title"], str):
                 spec["title"] = {
@@ -397,7 +434,17 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 spec["title"]["font"] = "Poppins, sans-serif"
                 spec["title"]["color"] = "#242B6B"
 
-        # 2. Fix Y-axis scaling so vertical axis uses height prominently
+        # 2. Interactive mouseover hover selection parameter
+        params = spec.get("params", [])
+        has_hover = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
+        if not has_hover:
+            params.append({
+                "name": "hover",
+                "select": {"type": "point", "on": "mouseover", "clear": "mouseout"}
+            })
+            spec["params"] = params
+
+        # 3. Y-axis scaling & pop-out hover encodings
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
             y_enc = encoding.get("y")
@@ -408,7 +455,7 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 scale_cfg.setdefault("zero", False)
                 y_enc["scale"] = scale_cfg
 
-            # Ensure tooltips are enabled on all channels
+            # Tooltips on all encoded fields
             if "tooltip" not in encoding:
                 tooltip_channels = []
                 for channel, ch_cfg in encoding.items():
@@ -421,29 +468,26 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 if tooltip_channels:
                     encoding["tooltip"] = tooltip_channels
 
-            # Add hover opacity condition if mark is bar, point, line, or area
+            # Add pop-out hover animations (opacity, size, strokeWidth)
             mark = spec.get("mark")
-            if isinstance(mark, str):
-                spec["mark"] = {
-                    "type": mark,
-                    "tooltip": True,
-                    "point": True,
-                    "opacity": {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
-                }
-            elif isinstance(mark, dict):
-                mark.setdefault("tooltip", True)
-                mark.setdefault("point", True)
-                mark["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
+            mark_type = mark if isinstance(mark, str) else (mark.get("type", "bar") if isinstance(mark, dict) else "bar")
 
-        # 3. Add mouseover/hover selection parameter if absent
-        params = spec.get("params", [])
-        has_hover_param = any(p.get("name") in ("hover", "grid") for p in params if isinstance(p, dict))
-        if not has_hover_param:
-            params.append({
-                "name": "hover",
-                "select": {"type": "point", "on": "mouseover", "clear": "mouseout"}
-            })
-            spec["params"] = params
+            mark_dict = mark if isinstance(mark, dict) else {"type": mark_type}
+            mark_dict["tooltip"] = True
+            mark_dict["cursor"] = "pointer"
+
+            if mark_type in ("bar", "arc", "rect"):
+                mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.65}
+                mark_dict["stroke"] = "#171C4A"
+                mark_dict["strokeWidth"] = {"condition": {"param": "hover", "value": 2.5}, "value": 0}
+            elif mark_type in ("point", "line", "area", "circle", "square"):
+                mark_dict["point"] = {
+                    "size": {"condition": {"param": "hover", "value": 120}, "value": 40},
+                    "filled": True
+                }
+                mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.75}
+
+            spec["mark"] = mark_dict
 
     if isinstance(spec, dict) and "data" in spec:
         st.vega_lite_chart(spec, use_container_width=True, key=key)
