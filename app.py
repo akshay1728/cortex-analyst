@@ -500,45 +500,20 @@ else:
     def set_pending_question(q_text: str):
         st.session_state.pending_question = q_text
 
-    # Check chat input
+    # Check chat input or pending question from button click
     user_input = st.chat_input("Ask an OEE question (e.g. 'Show OEE trend by plant over time')")
     prompt = user_input or st.session_state.pending_question
 
     if prompt:
         st.session_state.pending_question = None
-
         st.session_state.messages.append({
             "role": "user",
             "display": prompt,
             "content": [{"type": "text", "text": prompt}]
         })
-
-        with st.spinner("🤖 Calling Cortex Agent..."):
-            api_messages = [
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ]
-            events = call_agent(api_messages)
-            blocks = collect_response(events)
-
-        latest_df = None
-        text_parts = [b["text"] for b in blocks if b["type"] == "text" and b.get("text")]
-        raw_display_text = "\n\n".join(text_parts) if text_parts else ""
-        display_text = deduplicate_paragraphs(raw_display_text)
-
-        for b in blocks:
-            if b["type"] == "tool_results":
-                df_res = tool_results_to_df(b["content"])
-                if df_res is not None and not df_res.empty:
-                    latest_df = df_res
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "display": display_text,
-            "content": [{"type": "text", "text": display_text}],
-            "blocks": blocks,
-            "data": latest_df
-        })
+        st.session_state.active_prompt = prompt
+    else:
+        st.session_state.active_prompt = None
 
     # Sample Questions
     st.markdown('<div class="section-label">💡 Try asking</div>', unsafe_allow_html=True)
@@ -581,7 +556,7 @@ else:
                 st.markdown(disp_text)
                 continue
 
-            is_latest = (idx == latest_assistant_idx)
+            is_latest = (idx == latest_assistant_idx and st.session_state.active_prompt is None)
             with st.expander(_response_label(idx), expanded=is_latest):
                 main_msg, suggestions_from_text = split_suggestions(disp_text)
                 clean_main_msg = deduplicate_paragraphs(main_msg)
@@ -630,6 +605,70 @@ else:
                             on_click=set_pending_question,
                             args=(sug,)
                         )
+
+    # If there is an active prompt to run, execute Cortex Agent inside the Conversation block
+    if st.session_state.get("active_prompt"):
+        active_prompt = st.session_state.active_prompt
+        st.session_state.active_prompt = None
+
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            preview = active_prompt.strip()[:60] + ("…" if len(active_prompt.strip()) > 60 else "")
+            with st.expander(f"💬 {preview}", expanded=True):
+                with st.spinner("🤖 Calling Cortex Agent..."):
+                    api_messages = [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.messages
+                    ]
+                    events = call_agent(api_messages)
+                    blocks = collect_response(events)
+
+                latest_df = None
+                active_idx = len(st.session_state.messages)
+
+                text_parts = [b["text"] for b in blocks if b["type"] == "text" and b.get("text")]
+                raw_display_text = "\n\n".join(text_parts) if text_parts else ""
+                display_text = deduplicate_paragraphs(raw_display_text)
+
+                main_t, text_sug = split_suggestions(display_text)
+                if main_t:
+                    st.markdown(main_t)
+
+                act_suggestions = list(text_sug)
+                for b_idx, b in enumerate(blocks):
+                    if b["type"] == "tool_results":
+                        latest_df = tool_results_to_df(b["content"])
+                        if latest_df is not None and not latest_df.empty:
+                            st.markdown("**📋 Queried Data Table**")
+                            styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
+                            st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
+                    elif b["type"] == "chart":
+                        st.markdown("**📊 Visualization Chart**")
+                        chart_target = b.get("spec") or b.get("figure")
+                        render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
+                    elif b["type"] == "suggested_queries":
+                        for sq in b.get("queries", []):
+                            if sq not in act_suggestions:
+                                act_suggestions.append(sq)
+
+                if act_suggestions:
+                    st.markdown("**💡 Suggested Follow-ups:**")
+                    s_cols = st.columns(min(len(act_suggestions), 3))
+                    for s_i, sug in enumerate(act_suggestions):
+                        c_idx = s_i % len(s_cols)
+                        s_cols[c_idx].button(
+                            f"🔍 {sug}",
+                            key=f"act_sug_{active_idx}_{s_i}",
+                            on_click=set_pending_question,
+                            args=(sug,)
+                        )
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "display": display_text,
+                "content": [{"type": "text", "text": display_text}],
+                "blocks": blocks,
+                "data": latest_df
+            })
 
 # --------------------------------------------------------------------------
 # Render Sidebar PDF Export & Footer (Placed AFTER chat input execution)
