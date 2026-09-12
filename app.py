@@ -13,6 +13,8 @@ Integrates:
 
 import base64
 import logging
+import datetime
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -110,6 +112,9 @@ if "settings_header_subtitle" not in st.session_state:
 
 if "settings_custom_logo_bytes" not in st.session_state:
     st.session_state.settings_custom_logo_bytes = None
+
+if "settings_pdf_filename_template" not in st.session_state:
+    st.session_state.settings_pdf_filename_template = "OEE_Conversation_Report_{YYYYMMDD}.pdf"
 
 # Initialize Session State for Chat History early
 if "messages" not in st.session_state:
@@ -540,10 +545,21 @@ if nav_selection == "⚙️ Settings":
 
 else:
     # --- Chat Assistant Page ---
-    with st.sidebar.expander("🧭 Filters", expanded=True):
-        filters = render_sidebar_filters(df_raw)
+    # Hide filters section in sidebar for now as requested
+    HIDE_FILTERS_SIDEBAR = True
+    if not HIDE_FILTERS_SIDEBAR:
+        with st.sidebar.expander("🧭 Filters", expanded=True):
+            filters = render_sidebar_filters(df_raw)
+        st.sidebar.divider()
+    else:
+        filters = {
+            "date_range": (),
+            "plants": ["All"],
+            "lines": ["All"],
+            "shifts": ["All"],
+            "product_families": ["All"]
+        }
 
-    st.sidebar.divider()
     debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
     # Filter Dataset
@@ -583,8 +599,22 @@ else:
 
     st.write("")
 
-    # Conversation Section Header
-    st.markdown('<div class="section-label">💬 Conversation</div>', unsafe_allow_html=True)
+    # Conversation Section Header with anchor for auto-scrolling
+    st.markdown('<div id="conversation-section" class="section-label">💬 Conversation</div>', unsafe_allow_html=True)
+
+    # Trigger smooth scroll to conversation section when a question button was clicked or prompt entered
+    if prompt:
+        st.markdown(
+            """
+            <script>
+                var el = parent.document.getElementById('conversation-section');
+                if (el) {
+                    el.scrollIntoView({behavior: 'smooth', block: 'start'});
+                }
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
 
     ASSISTANT_AVATAR = "🤖"
     USER_AVATAR = "🧑‍🏭"
@@ -645,7 +675,7 @@ else:
                     last_df = msg.get("data")
                     for b_idx, b in enumerate(msg["blocks"]):
                         if b.get("type") == "chart":
-                            _subsection("📊", "Visualization Chart")
+                            # Note: "Visualization Chart" sub-heading removed as requested
                             chart_target = b.get("spec") or b.get("figure")
                             render_chart(chart_target, last_df, key=f"hist_cortex_chart_{idx}_{b_idx}")
                         elif b.get("type") == "tool_results":
@@ -714,7 +744,7 @@ else:
                             styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
                             st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
                     elif b["type"] == "chart":
-                        _subsection("📊", "Visualization Chart")
+                        # Note: "Visualization Chart" sub-heading removed as requested
                         chart_target = b.get("spec") or b.get("figure")
                         render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
                     elif b["type"] == "suggested_queries":
@@ -750,6 +780,12 @@ with st.sidebar:
         st.divider()
         st.markdown("### 📥 Export Conversation")
         try:
+            today_str = datetime.datetime.now().strftime("%Y%m%d")
+            today_dash = datetime.datetime.now().strftime("%Y-%m-%d")
+
+            tmpl = st.session_state.get("settings_pdf_filename_template", "OEE_Conversation_Report_{YYYYMMDD}.pdf")
+            pdf_fname = tmpl.replace("{YYYYMMDD}", today_str).replace("{YYYY-MM-DD}", today_dash)
+
             sb_pdf_bytes = generate_conversation_pdf(
                 messages=st.session_state.messages,
                 logo_bytes=active_logo_bytes,
@@ -759,7 +795,7 @@ with st.sidebar:
             st.download_button(
                 label="📄 Download Conversation (PDF)",
                 data=sb_pdf_bytes,
-                file_name="OEE_Conversation_Report.pdf",
+                file_name=pdf_fname,
                 mime="application/pdf",
                 use_container_width=True,
                 key="sidebar_pdf_btn"

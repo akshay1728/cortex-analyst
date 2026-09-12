@@ -111,16 +111,20 @@ def render_kpi_cards(kpis: Dict[str, Any], targets: Dict[str, float] = None):
 
 
 def render_sample_questions(on_click_callback):
-    """Render quick sample question buttons for user convenience."""
+    """Render quick sample question buttons dynamically loaded from DB or session state."""
     st.markdown("##### 💡 Suggested Questions")
-    sample_questions = [
-        "What is our overall OEE trend over time?",
-        "Compare OEE by plant",
-        "Which line has the highest downtime?",
-        "What are the top downtime causes?",
-        "Show quality rate by product family",
-        "Show breakdown of good vs defective units"
-    ]
+
+    if "suggested_questions_list" in st.session_state and st.session_state.suggested_questions_list:
+        sample_questions = [q_obj["text"] for q_obj in st.session_state.suggested_questions_list]
+    else:
+        sample_questions = [
+            "What is our overall OEE trend over time?",
+            "Compare OEE by plant",
+            "Which line has the highest downtime?",
+            "What are the top downtime causes?",
+            "Show quality rate by product family",
+            "Show breakdown of good vs defective units"
+        ]
 
     cols = st.columns(3)
     for idx, q in enumerate(sample_questions):

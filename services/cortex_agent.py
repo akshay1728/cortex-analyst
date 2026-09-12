@@ -259,8 +259,12 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         "Accept": "text/event-stream",
     }
 
+    # Dynamic settings retrieval
+    history_limit = st.session_state.get("settings_history_count", 10)
+    truncated_messages = messages[-history_limit:] if history_limit and len(messages) > history_limit else messages
+
     formatted_api_messages = []
-    for m in messages:
+    for m in truncated_messages:
         role = m.get("role", "user")
         content = m.get("content")
         if isinstance(content, str):
@@ -268,22 +272,25 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         elif isinstance(content, list):
             formatted_api_messages.append({"role": role, "content": content})
 
-    semantic_view = os.environ.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
+    semantic_view = st.session_state.get("settings_semantic_view") or os.environ.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
+    warehouse_name = st.session_state.get("settings_warehouse_name") or "WH_APPS"
+    analyst_tool_name = st.session_state.get("settings_analyst_tool_name") or "traksys_analyst"
+    orchestration_model = st.session_state.get("settings_orchestration_model") or "claude-sonnet-4-5"
 
     payload = {
-        "models": {"orchestration": "claude-sonnet-4-5"},
+        "models": {"orchestration": orchestration_model},
         "messages": formatted_api_messages,
         "tools": [
-            {"tool_spec": {"type": "cortex_analyst_text_to_sql", "name": "traksys_analyst"}},
+            {"tool_spec": {"type": "cortex_analyst_text_to_sql", "name": analyst_tool_name}},
             {"tool_spec": {"type": "sql_exec", "name": "sql_exec"}},
             {"tool_spec": {"type": "data_to_chart", "name": "data_to_chart"}},
         ],
         "tool_resources": {
-            "traksys_analyst": {
+            analyst_tool_name: {
                 "semantic_view": semantic_view,
                 "execution_environment": {
                     "type": "warehouse",
-                    "warehouse": "WH_APPS"
+                    "warehouse": warehouse_name
                 }
             }
         },
