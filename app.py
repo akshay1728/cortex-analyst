@@ -146,6 +146,47 @@ st.markdown(f"""
         padding-bottom: 2.5rem;
     }}
 
+    /* Custom Bullet and Sub-bullet Icons for Assistant Responses */
+    div[data-testid="stChatMessage"] ul {{
+        list-style: none !important;
+        padding-left: 1.2rem !important;
+        margin-top: 0.4rem;
+        margin-bottom: 0.6rem;
+    }}
+    div[data-testid="stChatMessage"] ul > li {{
+        position: relative;
+        padding-left: 1.2rem;
+        margin-bottom: 0.35rem;
+        line-height: 1.5;
+    }}
+    div[data-testid="stChatMessage"] ul > li::before {{
+        content: "🔹";
+        position: absolute;
+        left: 0;
+        top: 0.05rem;
+        font-size: 0.78rem;
+    }}
+    div[data-testid="stChatMessage"] ul > li > ul {{
+        list-style: none !important;
+        padding-left: 1.0rem !important;
+        margin-top: 0.3rem;
+        margin-bottom: 0.3rem;
+    }}
+    div[data-testid="stChatMessage"] ul > li > ul > li {{
+        position: relative;
+        padding-left: 1.1rem;
+        margin-bottom: 0.25rem;
+    }}
+    div[data-testid="stChatMessage"] ul > li > ul > li::before {{
+        content: "▸";
+        position: absolute;
+        left: 0;
+        top: -0.05rem;
+        font-size: 0.85rem;
+        color: {BRAND['coral']};
+        font-weight: bold;
+    }}
+
     .hero-banner {{
         display: flex;
         align-items: center;
