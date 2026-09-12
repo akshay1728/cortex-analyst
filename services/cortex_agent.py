@@ -463,7 +463,13 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
             x_enc = encoding.get("x", {})
             cat_field = x_enc.get("field") if isinstance(x_enc, dict) else None
 
-            if "color" not in encoding and cat_field:
+            # If color encoding is missing OR set to a single fixed color value, force categorical color mapping by x-axis field
+            color_enc = encoding.get("color")
+            is_single_color = False
+            if isinstance(color_enc, dict) and "value" in color_enc:
+                is_single_color = True
+
+            if (color_enc is None or is_single_color) and cat_field:
                 encoding["color"] = {
                     "field": cat_field,
                     "type": "nominal",
