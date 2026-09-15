@@ -259,9 +259,17 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         "Accept": "text/event-stream",
     }
 
-    # Dynamic settings retrieval
-    history_limit = st.session_state.get("settings_history_count", 10)
-    truncated_messages = messages[-history_limit:] if history_limit and len(messages) > history_limit else messages
+    # Dynamic settings retrieval (history_count represents conversation turns; 1 turn = 1 user + 1 assistant msg = 2 messages)
+    history_turns = int(st.session_state.get("settings_history_count", 10) or 10)
+    max_messages = history_turns * 2
+
+    if messages and len(messages) > max_messages:
+        truncated_messages = messages[-max_messages:]
+        # Ensure context window starts cleanly with a 'user' message
+        while truncated_messages and truncated_messages[0].get("role") != "user":
+            truncated_messages.pop(0)
+    else:
+        truncated_messages = messages or []
 
     formatted_api_messages = []
     for m in truncated_messages:
