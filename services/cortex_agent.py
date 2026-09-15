@@ -648,10 +648,15 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
             mark_dict["tooltip"] = True
             mark_dict["cursor"] = "pointer"
 
-            if mark_type in ("bar", "arc", "rect"):
-                mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.65}
-                mark_dict["stroke"] = "#171C4A"
-                mark_dict["strokeWidth"] = {"condition": {"param": "hover", "value": 2.5}, "value": 0}
+            if mark_type == "arc":
+                mark_dict["innerRadius"] = 55
+                mark_dict["stroke"] = "#ffffff"
+                mark_dict["strokeWidth"] = 1.5
+                mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.85}
+            elif mark_type in ("bar", "rect"):
+                mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.82}
+                mark_dict["stroke"] = "#ffffff"
+                mark_dict["strokeWidth"] = 1.0
             elif mark_type in ("point", "line", "area", "circle", "square"):
                 mark_dict["point"] = {
                     "size": {"condition": {"param": "hover", "value": 120}, "value": 40},
