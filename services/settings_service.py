@@ -62,17 +62,20 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
     """Fetch suggested questions from Snowflake DB via procedure SP_TRAKSYS_GET_QUESTIONS(), falling back to table query."""
     session = get_snowflake_session()
     if session is None:
+        logger.info("Snowflake session unavailable; returning empty question list.")
         return []
 
     df = None
     # 1. Try Procedure Call
     try:
         df = session.sql("CALL SP_TRAKSYS_GET_QUESTIONS()").to_pandas()
+        logger.info(f"SP_TRAKSYS_GET_QUESTIONS() returned {len(df) if df is not None else 0} rows.")
     except Exception as e_proc:
         logger.info(f"Procedure SP_TRAKSYS_GET_QUESTIONS() unavailable ({e_proc}), trying direct table select.")
         # 2. Fallback to direct table SELECT
         try:
             df = session.sql("SELECT QUESTION_ID, QUESTION_TEXT, DISPLAY_ORDER, CREATED_BY, UPDATED_BY FROM REF_TRAKSYS_QUESTIONS WHERE IS_ACTIVE = TRUE ORDER BY DISPLAY_ORDER ASC, QUESTION_ID ASC").to_pandas()
+            logger.info(f"SELECT REF_TRAKSYS_QUESTIONS returned {len(df) if df is not None else 0} rows.")
         except Exception as e_table:
             logger.warning(f"Unable to query REF_TRAKSYS_QUESTIONS table: {e_table}")
 
@@ -113,6 +116,7 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
                     "updated_by": str(u_by)
                 })
 
+        logger.info(f"Parsed {len(questions)} valid suggested questions from DB.")
         if questions:
             return questions
 
