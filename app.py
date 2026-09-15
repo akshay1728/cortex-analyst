@@ -83,8 +83,40 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------------
-# Initialize Session State Settings
+# Initialize Session State Settings from DB
 # --------------------------------------------------------------------------
+from services.settings_service import load_app_settings_from_db, load_suggested_questions_from_db
+
+if "db_settings_loaded" not in st.session_state:
+    db_res = load_app_settings_from_db()
+    db_sets = db_res.get("settings", {})
+
+    st.session_state.settings_header_title = db_sets.get("header_title", "OEE AI Assistant")
+    st.session_state.settings_header_subtitle = db_sets.get("header_subtitle", "Ask natural language questions about plant performance")
+    st.session_state.settings_pdf_filename_template = db_sets.get("pdf_filename_template", "OEE_Conversation_Report_{YYYYMMDD}.pdf")
+    st.session_state.settings_semantic_view = db_sets.get("semantic_view", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
+    st.session_state.settings_warehouse_name = db_sets.get("warehouse_name", "WH_APPS")
+    st.session_state.settings_analyst_tool_name = db_sets.get("analyst_tool_name", "traksys_analyst")
+    st.session_state.settings_orchestration_model = db_sets.get("orchestration_model", "claude-sonnet-4-5")
+    st.session_state.settings_history_count = int(db_sets.get("history_count", 10))
+
+    st.session_state.settings_targets = {
+        "oee": float(db_sets.get("oee_target", 85.0)),
+        "availability": float(db_sets.get("availability_target", 90.0)),
+        "performance": float(db_sets.get("performance_target", 95.0)),
+        "quality": float(db_sets.get("quality_target", 99.0))
+    }
+
+    if db_res.get("logo_bytes") is not None:
+        st.session_state.settings_custom_logo_bytes = db_res["logo_bytes"]
+
+    st.session_state.db_settings_loaded = True
+
+if "db_questions_loaded" not in st.session_state or not st.session_state.get("suggested_questions_list"):
+    db_qs = load_suggested_questions_from_db()
+    st.session_state.suggested_questions_list = db_qs
+    st.session_state.db_questions_loaded = True
+
 if "settings_targets" not in st.session_state:
     st.session_state.settings_targets = {
         "oee": 85.0,
@@ -101,20 +133,8 @@ if "settings_colors" not in st.session_state:
         "quality": {"enabled": False, "threshold": 99.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
     }
 
-if "settings_header_title" not in st.session_state:
-    st.session_state.settings_header_title = "OEE AI Assistant"
-
-if "settings_header_subtitle" not in st.session_state:
-    st.session_state.settings_header_subtitle = (
-        "Ask natural language questions about plant performance, equipment availability, "
-        "line productivity, and downtime root causes — powered by Cortex Analyst."
-    )
-
 if "settings_custom_logo_bytes" not in st.session_state:
     st.session_state.settings_custom_logo_bytes = None
-
-if "settings_pdf_filename_template" not in st.session_state:
-    st.session_state.settings_pdf_filename_template = "OEE_Conversation_Report_{YYYYMMDD}.pdf"
 
 # Initialize Session State for Chat History early
 if "messages" not in st.session_state:

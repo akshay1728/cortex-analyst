@@ -11,6 +11,7 @@ Loads and saves settings to Snowflake DB via stored procedures with direct table
 
 import logging
 import base64
+import json
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import streamlit as st
@@ -26,18 +27,34 @@ def _get_current_username() -> str:
     return "APP_USER"
 
 
-def _row_val(row: Any, possible_keys: List[str], default: Any = None) -> Any:
-    """Case-insensitive dictionary/Series lookup for DataFrame rows."""
+def _row_val(row: Any, possible_keys: List[str], positional_idx: Optional[int] = None, default: Any = None) -> Any:
+    """Case-insensitive dictionary/Series lookup for DataFrame rows with positional fallback."""
     if row is None:
         return default
-    row_keys = {str(k).lower(): k for k in row.keys()}
-    for key in possible_keys:
-        k_lower = key.lower()
-        if k_lower in row_keys:
-            actual_key = row_keys[k_lower]
-            val = row[actual_key]
-            if val is not None and str(val) != "None":
+
+    # If row has dictionary/Series keys
+    if hasattr(row, "keys"):
+        row_keys = {str(k).lower(): k for k in row.keys()}
+        for key in possible_keys:
+            k_lower = key.lower()
+            if k_lower in row_keys:
+                actual_key = row_keys[k_lower]
+                val = row[actual_key]
+                if val is not None and str(val) != "None" and str(val) != "nan":
+                    return val
+
+    # Positional fallback for index-based rows
+    if positional_idx is not None:
+        try:
+            if hasattr(row, "iloc"):
+                val = row.iloc[positional_idx]
+            else:
+                val = row[positional_idx]
+            if val is not None and str(val) != "None" and str(val) != "nan":
                 return val
+        except Exception:
+            pass
+
     return default
 
 
@@ -61,22 +78,43 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
 
     if df is not None and not df.empty:
         questions = []
-        for _, row in df.iterrows():
-            q_id = _row_val(row, ["QUESTION_ID", "question_id", "ID"], 0)
-            q_text = _row_val(row, ["QUESTION_TEXT", "question_text", "TEXT"], "")
-            q_order = _row_val(row, ["DISPLAY_ORDER", "display_order", "ORDER"], 0)
-            c_by = _row_val(row, ["CREATED_BY", "created_by"], "UNKNOWN")
-            u_by = _row_val(row, ["UPDATED_BY", "updated_by"], "UNKNOWN")
+        for idx_r, row in df.iterrows():
+            # Check if row is a JSON string or dict returned by stored procedure
+            if len(df.columns) == 1 and isinstance(row.iloc[0], str):
+                try:
+                    j_obj = json.loads(row.iloc[0])
+                    if isinstance(j_obj, dict):
+                        row = j_obj
+                except Exception:
+                    pass
 
-            if q_text:
+            q_id = _row_val(row, ["QUESTION_ID", "question_id", "ID"], positional_idx=0, default=idx_r+1)
+            q_text = _row_val(row, ["QUESTION_TEXT", "question_text", "TEXT", "QUESTION"], positional_idx=1, default="")
+            q_order = _row_val(row, ["DISPLAY_ORDER", "display_order", "ORDER"], positional_idx=2, default=idx_r+1)
+            c_by = _row_val(row, ["CREATED_BY", "created_by"], positional_idx=3, default="UNKNOWN")
+            u_by = _row_val(row, ["UPDATED_BY", "updated_by"], positional_idx=4, default="UNKNOWN")
+
+            if q_text and str(q_text).strip():
+                try:
+                    q_id_int = int(q_id)
+                except (ValueError, TypeError):
+                    q_id_int = idx_r + 1
+
+                try:
+                    q_order_int = int(q_order)
+                except (ValueError, TypeError):
+                    q_order_int = idx_r + 1
+
                 questions.append({
-                    "id": int(q_id),
-                    "text": str(q_text),
-                    "order": int(q_order),
+                    "id": q_id_int,
+                    "text": str(q_text).strip(),
+                    "order": q_order_int,
                     "created_by": str(c_by),
                     "updated_by": str(u_by)
                 })
-        return questions
+
+        if questions:
+            return questions
 
     return []
 
@@ -149,9 +187,17 @@ def load_app_settings_from_db() -> Dict[str, Any]:
 
     if df is not None and not df.empty:
         for _, row in df.iterrows():
-            key_raw = _row_val(row, ["SETTING_KEY", "setting_key", "KEY"], "")
-            val_raw = _row_val(row, ["SETTING_VALUE", "setting_value", "VALUE"], None)
-            blob = _row_val(row, ["SETTING_BLOB", "setting_blob", "BLOB"], None)
+            if len(df.columns) == 1 and isinstance(row.iloc[0], str):
+                try:
+                    j_obj = json.loads(row.iloc[0])
+                    if isinstance(j_obj, dict):
+                        row = j_obj
+                except Exception:
+                    pass
+
+            key_raw = _row_val(row, ["SETTING_KEY", "setting_key", "KEY"], positional_idx=0, default="")
+            val_raw = _row_val(row, ["SETTING_VALUE", "setting_value", "VALUE"], positional_idx=1, default=None)
+            blob = _row_val(row, ["SETTING_BLOB", "setting_blob", "BLOB"], positional_idx=2, default=None)
 
             key = str(key_raw).lower() if key_raw else ""
 
