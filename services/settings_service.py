@@ -26,6 +26,21 @@ def _get_current_username() -> str:
     return "APP_USER"
 
 
+def _row_val(row: Any, possible_keys: List[str], default: Any = None) -> Any:
+    """Case-insensitive dictionary/Series lookup for DataFrame rows."""
+    if row is None:
+        return default
+    row_keys = {str(k).lower(): k for k in row.keys()}
+    for key in possible_keys:
+        k_lower = key.lower()
+        if k_lower in row_keys:
+            actual_key = row_keys[k_lower]
+            val = row[actual_key]
+            if val is not None and str(val) != "None":
+                return val
+    return default
+
+
 def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
     """Fetch suggested questions from Snowflake DB via stored procedure SP_TRAKSYS_GET_QUESTIONS()."""
     session = get_snowflake_session()
@@ -37,13 +52,20 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
         if df is not None and not df.empty:
             questions = []
             for _, row in df.iterrows():
-                questions.append({
-                    "id": int(row.get("QUESTION_ID", 0)),
-                    "text": str(row.get("QUESTION_TEXT", "")),
-                    "order": int(row.get("DISPLAY_ORDER", 0)),
-                    "created_by": str(row.get("CREATED_BY", "UNKNOWN")),
-                    "updated_by": str(row.get("UPDATED_BY", "UNKNOWN"))
-                })
+                q_id = _row_val(row, ["QUESTION_ID", "question_id", "ID"], 0)
+                q_text = _row_val(row, ["QUESTION_TEXT", "question_text", "TEXT"], "")
+                q_order = _row_val(row, ["DISPLAY_ORDER", "display_order", "ORDER"], 0)
+                c_by = _row_val(row, ["CREATED_BY", "created_by"], "UNKNOWN")
+                u_by = _row_val(row, ["UPDATED_BY", "updated_by"], "UNKNOWN")
+
+                if q_text:
+                    questions.append({
+                        "id": int(q_id),
+                        "text": str(q_text),
+                        "order": int(q_order),
+                        "created_by": str(c_by),
+                        "updated_by": str(u_by)
+                    })
             return questions
     except Exception as e:
         logger.warning(f"Unable to call SP_TRAKSYS_GET_QUESTIONS(): {e}")
@@ -96,12 +118,14 @@ def load_app_settings_from_db() -> Dict[str, Any]:
         df = session.sql("CALL SP_TRAKSYS_GET_APP_SETTINGS()").to_pandas()
         if df is not None and not df.empty:
             for _, row in df.iterrows():
-                key = str(row.get("SETTING_KEY", "")).lower()
-                val = row.get("SETTING_VALUE")
-                blob = row.get("SETTING_BLOB")
+                key_raw = _row_val(row, ["SETTING_KEY", "setting_key", "KEY"], "")
+                val_raw = _row_val(row, ["SETTING_VALUE", "setting_value", "VALUE"], None)
+                blob = _row_val(row, ["SETTING_BLOB", "setting_blob", "BLOB"], None)
 
-                if key and val is not None and str(val) != "None":
-                    val_str = str(val)
+                key = str(key_raw).lower() if key_raw else ""
+
+                if key and val_raw is not None and str(val_raw) != "None":
+                    val_str = str(val_raw)
                     if key in ("history_count",):
                         try:
                             settings[key] = int(val_str)

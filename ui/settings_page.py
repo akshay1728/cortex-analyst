@@ -18,9 +18,10 @@ def render_settings_page():
     st.markdown("## ⚙️ Application Settings")
     st.markdown("Configure suggested questions, application parameters, Cortex Agent DB settings, company logo, and header text.")
 
-    # Load suggested questions and settings from DB or Session State
-    if "db_questions_loaded" not in st.session_state:
-        st.session_state.suggested_questions_list = load_suggested_questions_from_db()
+    # Load suggested questions and settings from DB
+    if "db_questions_loaded" not in st.session_state or not st.session_state.get("suggested_questions_list"):
+        db_qs = load_suggested_questions_from_db()
+        st.session_state.suggested_questions_list = db_qs
         st.session_state.db_questions_loaded = True
 
     if "db_settings_loaded" not in st.session_state:
@@ -43,38 +44,49 @@ def render_settings_page():
 
     # --- Section 1: Suggested Questions Management (DB Backed) ---
     with st.expander("💡 Suggested Questions Management (DB)", expanded=True):
-        st.markdown("Manage sample questions shown at the top of the chat assistant. Changes are saved to the database.")
+        st.markdown("Manage sample questions shown at the top of the chat assistant. Questions are fetched from and stored in the database.")
+
+        top_col1, top_col2 = st.columns([7, 3])
+        with top_col2:
+            if st.button("🔄 Reload Questions from DB", key="reload_sq_btn"):
+                st.session_state.suggested_questions_list = load_suggested_questions_from_db()
+                st.success("Refreshed questions from database.")
+                st.rerun()
 
         sq_list = st.session_state.get("suggested_questions_list", [])
 
-        # Display current questions table with action buttons
-        for idx, q_obj in enumerate(sq_list):
-            c1, c2, c3 = st.columns([6, 2, 2])
-            with c1:
-                q_text_input = st.text_input(
-                    f"Question #{idx+1}",
-                    value=q_obj["text"],
-                    key=f"sq_text_in_{q_obj['id']}_{idx}"
-                )
-            with c2:
-                q_order_input = st.number_input(
-                    "Order",
-                    min_value=1,
-                    max_value=100,
-                    value=int(q_obj.get("order", idx+1)),
-                    key=f"sq_order_in_{q_obj['id']}_{idx}"
-                )
-            with c3:
-                st.write("")
-                st.write("")
-                if st.button("❌ Remove", key=f"sq_del_{q_obj['id']}_{idx}"):
-                    delete_suggested_question_from_db(q_obj["id"])
-                    st.session_state.suggested_questions_list.pop(idx)
-                    st.success("Question removed.")
-                    st.rerun()
+        if sq_list:
+            st.markdown("##### Existing Database Questions:")
+            for idx, q_obj in enumerate(sq_list):
+                c1, c2, c3 = st.columns([6, 2, 2])
+                with c1:
+                    q_text_input = st.text_input(
+                        f"Question #{idx+1} (ID: {q_obj.get('id', 'New')})",
+                        value=q_obj["text"],
+                        key=f"sq_text_in_{q_obj.get('id', idx)}_{idx}"
+                    )
+                with c2:
+                    q_order_input = st.number_input(
+                        "Order",
+                        min_value=1,
+                        max_value=100,
+                        value=int(q_obj.get("order", idx+1)),
+                        key=f"sq_order_in_{q_obj.get('id', idx)}_{idx}"
+                    )
+                with c3:
+                    st.write("")
+                    st.write("")
+                    if st.button("❌ Remove", key=f"sq_del_{q_obj.get('id', idx)}_{idx}"):
+                        if q_obj.get("id"):
+                            delete_suggested_question_from_db(q_obj["id"])
+                        st.session_state.suggested_questions_list.pop(idx)
+                        st.success("Question removed.")
+                        st.rerun()
 
-            sq_list[idx]["text"] = q_text_input
-            sq_list[idx]["order"] = q_order_input
+                sq_list[idx]["text"] = q_text_input
+                sq_list[idx]["order"] = q_order_input
+        else:
+            st.info("No suggested questions found in the database. Add a new question below.")
 
         st.divider()
         st.markdown("##### ➕ Add New Suggested Question")
@@ -89,7 +101,7 @@ def render_settings_page():
                     new_order = len(sq_list) + 1
                     save_suggested_question_to_db(None, new_q_text.strip(), new_order)
                     st.session_state.suggested_questions_list = load_suggested_questions_from_db()
-                    st.success("New question added!")
+                    st.success("New question added to database!")
                     st.rerun()
                 else:
                     st.warning("Please enter question text.")
