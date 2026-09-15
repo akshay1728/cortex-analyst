@@ -218,10 +218,8 @@ fig = px.bar(
     x="{cat_col}",
     y="{val_col}",
     title="{question.title()}",
-    text_auto=".1f",
-    color_discrete_sequence=["#242B6B"]
+    text_auto=".1f"
 )
-fig.update_traces(marker_color="#242B6B", textfont_color="white")
 """
         return {
             "should_visualize": True,
@@ -307,10 +305,8 @@ fig = px.bar(
     x="{cat_col}",
     y="{val_col}",
     title="{question.title()}",
-    text_auto=".1f",
-    color_discrete_sequence=["#242B6B"]
+    text_auto=".1f"
 )
-fig.update_traces(marker_color="#242B6B", textfont_color="white")
 """
     return {
         "should_visualize": True,
