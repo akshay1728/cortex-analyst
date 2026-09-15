@@ -1,12 +1,12 @@
 """Settings Service for DB persistence and Session State management.
 
-Loads and saves settings to Snowflake DB strictly via stored procedures:
-- SP_TRAKSYS_GET_APP_SETTINGS
-- SP_TRAKSYS_SAVE_APP_SETTING
-- SP_TRAKSYS_SAVE_APP_SETTING_BLOB
-- SP_TRAKSYS_GET_QUESTIONS
-- SP_TRAKSYS_SAVE_QUESTION
-- SP_TRAKSYS_DELETE_QUESTION
+Loads and saves settings to Snowflake DB via stored procedures with direct table fallbacks:
+- SP_TRAKSYS_GET_APP_SETTINGS -> REF_TRAKSYS_SETTINGS
+- SP_TRAKSYS_SAVE_APP_SETTING -> REF_TRAKSYS_SETTINGS
+- SP_TRAKSYS_SAVE_APP_SETTING_BLOB -> REF_TRAKSYS_SETTINGS
+- SP_TRAKSYS_GET_QUESTIONS -> REF_TRAKSYS_QUESTIONS
+- SP_TRAKSYS_SAVE_QUESTION -> REF_TRAKSYS_QUESTIONS
+- SP_TRAKSYS_DELETE_QUESTION -> REF_TRAKSYS_QUESTIONS
 """
 
 import logging
@@ -42,71 +42,94 @@ def _row_val(row: Any, possible_keys: List[str], default: Any = None) -> Any:
 
 
 def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
-    """Fetch suggested questions from Snowflake DB via stored procedure SP_TRAKSYS_GET_QUESTIONS()."""
+    """Fetch suggested questions from Snowflake DB via procedure SP_TRAKSYS_GET_QUESTIONS(), falling back to table query."""
     session = get_snowflake_session()
     if session is None:
         return []
 
+    df = None
+    # 1. Try Procedure Call
     try:
         df = session.sql("CALL SP_TRAKSYS_GET_QUESTIONS()").to_pandas()
-        if df is not None and not df.empty:
-            questions = []
-            for _, row in df.iterrows():
-                q_id = _row_val(row, ["QUESTION_ID", "question_id", "ID"], 0)
-                q_text = _row_val(row, ["QUESTION_TEXT", "question_text", "TEXT"], "")
-                q_order = _row_val(row, ["DISPLAY_ORDER", "display_order", "ORDER"], 0)
-                c_by = _row_val(row, ["CREATED_BY", "created_by"], "UNKNOWN")
-                u_by = _row_val(row, ["UPDATED_BY", "updated_by"], "UNKNOWN")
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_GET_QUESTIONS() unavailable ({e_proc}), trying direct table select.")
+        # 2. Fallback to direct table SELECT
+        try:
+            df = session.sql("SELECT QUESTION_ID, QUESTION_TEXT, DISPLAY_ORDER, CREATED_BY, UPDATED_BY FROM REF_TRAKSYS_QUESTIONS WHERE IS_ACTIVE = TRUE ORDER BY DISPLAY_ORDER ASC, QUESTION_ID ASC").to_pandas()
+        except Exception as e_table:
+            logger.warning(f"Unable to query REF_TRAKSYS_QUESTIONS table: {e_table}")
 
-                if q_text:
-                    questions.append({
-                        "id": int(q_id),
-                        "text": str(q_text),
-                        "order": int(q_order),
-                        "created_by": str(c_by),
-                        "updated_by": str(u_by)
-                    })
-            return questions
-    except Exception as e:
-        logger.warning(f"Unable to call SP_TRAKSYS_GET_QUESTIONS(): {e}")
+    if df is not None and not df.empty:
+        questions = []
+        for _, row in df.iterrows():
+            q_id = _row_val(row, ["QUESTION_ID", "question_id", "ID"], 0)
+            q_text = _row_val(row, ["QUESTION_TEXT", "question_text", "TEXT"], "")
+            q_order = _row_val(row, ["DISPLAY_ORDER", "display_order", "ORDER"], 0)
+            c_by = _row_val(row, ["CREATED_BY", "created_by"], "UNKNOWN")
+            u_by = _row_val(row, ["UPDATED_BY", "updated_by"], "UNKNOWN")
+
+            if q_text:
+                questions.append({
+                    "id": int(q_id),
+                    "text": str(q_text),
+                    "order": int(q_order),
+                    "created_by": str(c_by),
+                    "updated_by": str(u_by)
+                })
+        return questions
 
     return []
 
 
 def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int = 1, user: Optional[str] = None) -> bool:
-    """Save or update a suggested question in DB via stored procedure SP_TRAKSYS_SAVE_QUESTION()."""
+    """Save or update a suggested question in DB via procedure SP_TRAKSYS_SAVE_QUESTION(), falling back to DML."""
     session = get_snowflake_session()
     if session is None:
         return False
     user_val = user or _get_current_username()
+    esc_text = q_text.replace("'", "''")
+    esc_user = user_val.replace("'", "''")
+    qid_val = q_id if q_id and q_id > 0 else 'NULL'
+
     try:
-        esc_text = q_text.replace("'", "''")
-        esc_user = user_val.replace("'", "''")
-        qid_val = q_id if q_id and q_id > 0 else 'NULL'
         session.sql(f"CALL SP_TRAKSYS_SAVE_QUESTION({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
         return True
-    except Exception as e:
-        logger.error(f"Failed to call SP_TRAKSYS_SAVE_QUESTION(): {e}")
-        return False
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_SAVE_QUESTION unavailable ({e_proc}), trying direct table DML.")
+        try:
+            if q_id and q_id > 0:
+                session.sql(f"UPDATE REF_TRAKSYS_QUESTIONS SET QUESTION_TEXT = '{esc_text}', DISPLAY_ORDER = {q_order}, UPDATED_BY = '{esc_user}', UPDATED_AT = CURRENT_TIMESTAMP() WHERE QUESTION_ID = {q_id}").collect()
+            else:
+                session.sql(f"INSERT INTO REF_TRAKSYS_QUESTIONS (QUESTION_TEXT, DISPLAY_ORDER, CREATED_BY, UPDATED_BY) VALUES ('{esc_text}', {q_order}, '{esc_user}', '{esc_user}')").collect()
+            return True
+        except Exception as e_dml:
+            logger.error(f"Failed direct table DML on REF_TRAKSYS_QUESTIONS: {e_dml}")
+            return False
 
 
 def delete_suggested_question_from_db(q_id: int, user: Optional[str] = None) -> bool:
-    """Delete (soft-delete) a suggested question from DB via stored procedure SP_TRAKSYS_DELETE_QUESTION()."""
+    """Delete (soft-delete) a suggested question from DB via procedure SP_TRAKSYS_DELETE_QUESTION(), falling back to DML."""
     session = get_snowflake_session()
     if session is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
+
     try:
         session.sql(f"CALL SP_TRAKSYS_DELETE_QUESTION({q_id}, '{esc_user}')").collect()
         return True
-    except Exception as e:
-        logger.error(f"Failed to call SP_TRAKSYS_DELETE_QUESTION(): {e}")
-        return False
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_DELETE_QUESTION unavailable ({e_proc}), trying direct table UPDATE.")
+        try:
+            session.sql(f"UPDATE REF_TRAKSYS_QUESTIONS SET IS_ACTIVE = FALSE, UPDATED_BY = '{esc_user}', UPDATED_AT = CURRENT_TIMESTAMP() WHERE QUESTION_ID = {q_id}").collect()
+            return True
+        except Exception as e_dml:
+            logger.error(f"Failed direct table UPDATE on REF_TRAKSYS_QUESTIONS: {e_dml}")
+            return False
 
 
 def load_app_settings_from_db() -> Dict[str, Any]:
-    """Load settings key-values and logo blob from Snowflake DB via stored procedure SP_TRAKSYS_GET_APP_SETTINGS()."""
+    """Load settings key-values and logo blob from Snowflake DB via procedure SP_TRAKSYS_GET_APP_SETTINGS(), falling back to table query."""
     settings = {}
     logo_bytes = None
 
@@ -114,73 +137,102 @@ def load_app_settings_from_db() -> Dict[str, Any]:
     if session is None:
         return {"settings": settings, "logo_bytes": logo_bytes}
 
+    df = None
     try:
         df = session.sql("CALL SP_TRAKSYS_GET_APP_SETTINGS()").to_pandas()
-        if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                key_raw = _row_val(row, ["SETTING_KEY", "setting_key", "KEY"], "")
-                val_raw = _row_val(row, ["SETTING_VALUE", "setting_value", "VALUE"], None)
-                blob = _row_val(row, ["SETTING_BLOB", "setting_blob", "BLOB"], None)
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_GET_APP_SETTINGS unavailable ({e_proc}), trying direct table select.")
+        try:
+            df = session.sql("SELECT SETTING_KEY, SETTING_VALUE, SETTING_BLOB, CREATED_BY, UPDATED_BY FROM REF_TRAKSYS_SETTINGS").to_pandas()
+        except Exception as e_table:
+            logger.warning(f"Unable to query REF_TRAKSYS_SETTINGS table: {e_table}")
 
-                key = str(key_raw).lower() if key_raw else ""
+    if df is not None and not df.empty:
+        for _, row in df.iterrows():
+            key_raw = _row_val(row, ["SETTING_KEY", "setting_key", "KEY"], "")
+            val_raw = _row_val(row, ["SETTING_VALUE", "setting_value", "VALUE"], None)
+            blob = _row_val(row, ["SETTING_BLOB", "setting_blob", "BLOB"], None)
 
-                if key and val_raw is not None and str(val_raw) != "None":
-                    val_str = str(val_raw)
-                    if key in ("history_count",):
-                        try:
-                            settings[key] = int(val_str)
-                        except ValueError:
-                            pass
-                    elif key in ("oee_target", "availability_target", "performance_target", "quality_target"):
-                        try:
-                            settings[key] = float(val_str)
-                        except ValueError:
-                            pass
-                    else:
-                        settings[key] = val_str
+            key = str(key_raw).lower() if key_raw else ""
 
-                if key == "company_logo" and blob is not None:
-                    if isinstance(blob, (bytes, bytearray)):
-                        logo_bytes = bytes(blob)
-                    elif isinstance(blob, str) and blob:
-                        try:
-                            logo_bytes = base64.b64decode(blob)
-                        except Exception:
-                            pass
+            if key and val_raw is not None and str(val_raw) != "None":
+                val_str = str(val_raw)
+                if key in ("history_count",):
+                    try:
+                        settings[key] = int(val_str)
+                    except ValueError:
+                        pass
+                elif key in ("oee_target", "availability_target", "performance_target", "quality_target"):
+                    try:
+                        settings[key] = float(val_str)
+                    except ValueError:
+                        pass
+                else:
+                    settings[key] = val_str
 
-    except Exception as e:
-        logger.warning(f"Unable to call SP_TRAKSYS_GET_APP_SETTINGS(): {e}")
+            if key == "company_logo" and blob is not None:
+                if isinstance(blob, (bytes, bytearray)):
+                    logo_bytes = bytes(blob)
+                elif isinstance(blob, str) and blob:
+                    try:
+                        logo_bytes = base64.b64decode(blob)
+                    except Exception:
+                        pass
 
     return {"settings": settings, "logo_bytes": logo_bytes}
 
 
 def save_app_setting_to_db(key: str, val: Any, user: Optional[str] = None) -> bool:
-    """Save setting string key-value to Snowflake DB via stored procedure SP_TRAKSYS_SAVE_APP_SETTING()."""
+    """Save setting string key-value to Snowflake DB via procedure SP_TRAKSYS_SAVE_APP_SETTING(), falling back to MERGE."""
     session = get_snowflake_session()
     if session is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
+    val_str = str(val).replace("'", "''")
+
     try:
-        val_str = str(val).replace("'", "''")
         session.sql(f"CALL SP_TRAKSYS_SAVE_APP_SETTING('{key.upper()}', '{val_str}', '{esc_user}')").collect()
         return True
-    except Exception as e:
-        logger.error(f"Failed to call SP_TRAKSYS_SAVE_APP_SETTING('{key}'): {e}")
-        return False
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_SAVE_APP_SETTING unavailable ({e_proc}), trying direct table MERGE.")
+        try:
+            session.sql(f"""
+                MERGE INTO REF_TRAKSYS_SETTINGS t
+                USING (SELECT '{key.upper()}' AS k, '{val_str}' AS v, '{esc_user}' AS u) s
+                ON t.SETTING_KEY = s.k
+                WHEN MATCHED THEN UPDATE SET SETTING_VALUE = s.v, UPDATED_BY = s.u, UPDATED_AT = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_VALUE, CREATED_BY, UPDATED_BY, UPDATED_AT) VALUES (s.k, s.v, s.u, s.u, CURRENT_TIMESTAMP())
+            """).collect()
+            return True
+        except Exception as e_merge:
+            logger.error(f"Failed direct table MERGE on REF_TRAKSYS_SETTINGS: {e_merge}")
+            return False
 
 
 def save_app_logo_to_db(logo_bytes: Optional[bytes], user: Optional[str] = None) -> bool:
-    """Save binary logo bytes to DB via stored procedure SP_TRAKSYS_SAVE_APP_SETTING_BLOB()."""
+    """Save binary logo bytes to DB via procedure SP_TRAKSYS_SAVE_APP_SETTING_BLOB(), falling back to MERGE."""
     session = get_snowflake_session()
     if session is None or logo_bytes is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
+    hex_str = logo_bytes.hex()
+
     try:
-        hex_str = logo_bytes.hex()
         session.sql(f"CALL SP_TRAKSYS_SAVE_APP_SETTING_BLOB('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
         return True
-    except Exception as e:
-        logger.error(f"Failed to call SP_TRAKSYS_SAVE_APP_SETTING_BLOB(): {e}")
-        return False
+    except Exception as e_proc:
+        logger.info(f"Procedure SP_TRAKSYS_SAVE_APP_SETTING_BLOB unavailable ({e_proc}), trying direct table MERGE.")
+        try:
+            session.sql(f"""
+                MERGE INTO REF_TRAKSYS_SETTINGS t
+                USING (SELECT 'COMPANY_LOGO' AS k, TO_BINARY('{hex_str}', 'HEX') AS b, '{esc_user}' AS u) s
+                ON t.SETTING_KEY = s.k
+                WHEN MATCHED THEN UPDATE SET SETTING_BLOB = s.b, UPDATED_BY = s.u, UPDATED_AT = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN INSERT (SETTING_KEY, SETTING_BLOB, CREATED_BY, UPDATED_BY, UPDATED_AT) VALUES (s.k, s.b, s.u, s.u, CURRENT_TIMESTAMP())
+            """).collect()
+            return True
+        except Exception as e_merge:
+            logger.error(f"Failed direct table MERGE for logo on REF_TRAKSYS_SETTINGS: {e_merge}")
+            return False
