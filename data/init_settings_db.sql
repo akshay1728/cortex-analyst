@@ -1,6 +1,7 @@
 -- ============================================================================
 -- OEE Analytics Application Database Setup Script
 -- Creates tables and stored procedures for App Settings & Suggested Questions
+-- Uses Snowflake native BINARY data type for logo blobs
 -- Includes CREATED_BY and UPDATED_BY audit columns and default seed data
 -- ============================================================================
 
@@ -30,11 +31,11 @@ SELECT 'Show quality rate by product family', 5, CURRENT_USER(), CURRENT_USER() 
 UNION ALL
 SELECT 'Show breakdown of good vs defective units', 6, CURRENT_USER(), CURRENT_USER() WHERE NOT EXISTS (SELECT 1 FROM REF_TRAKSYS_QUESTIONS);
 
--- 2. Application Settings Table
+-- 2. Application Settings Table (Uses Snowflake native BINARY for binary blobs)
 CREATE TABLE IF NOT EXISTS REF_TRAKSYS_SETTINGS (
     SETTING_KEY VARCHAR(100) PRIMARY KEY,
     SETTING_VALUE STRING,
-    SETTING_BLOB BYTES,
+    SETTING_BLOB BINARY,
     CREATED_BY VARCHAR(100) DEFAULT CURRENT_USER(),
     UPDATED_BY VARCHAR(100) DEFAULT CURRENT_USER(),
     CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
@@ -69,7 +70,7 @@ SELECT 'QUALITY_TARGET', '99.0', CURRENT_USER(), CURRENT_USER() WHERE NOT EXISTS
 
 -- 3. Stored Procedure: Get App Settings
 CREATE OR REPLACE PROCEDURE SP_TRAKSYS_GET_APP_SETTINGS()
-RETURNS TABLE (SETTING_KEY VARCHAR, SETTING_VALUE STRING, SETTING_BLOB BYTES, HAS_BLOB BOOLEAN, CREATED_BY VARCHAR, UPDATED_BY VARCHAR)
+RETURNS TABLE (SETTING_KEY VARCHAR, SETTING_VALUE STRING, SETTING_BLOB BINARY, HAS_BLOB BOOLEAN, CREATED_BY VARCHAR, UPDATED_BY VARCHAR)
 LANGUAGE SQL
 AS
 $$
@@ -100,7 +101,7 @@ END;
 $$;
 
 -- 5. Stored Procedure: Save App Setting Blob (for Logo Image Bytes)
-CREATE OR REPLACE PROCEDURE SP_TRAKSYS_SAVE_APP_SETTING_BLOB(P_KEY VARCHAR, P_BLOB BYTES, P_USER VARCHAR)
+CREATE OR REPLACE PROCEDURE SP_TRAKSYS_SAVE_APP_SETTING_BLOB(P_KEY VARCHAR, P_BLOB BINARY, P_USER VARCHAR)
 RETURNS STRING
 LANGUAGE SQL
 AS
