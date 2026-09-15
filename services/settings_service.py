@@ -1,12 +1,12 @@
 """Settings Service for DB persistence and Session State management.
 
 Loads and saves settings to Snowflake DB via stored procedures with direct table fallbacks:
-- SP_TRAKSYS_GET_APP_SETTINGS -> REF_TRAKSYS_SETTINGS
-- SP_TRAKSYS_SAVE_APP_SETTING -> REF_TRAKSYS_SETTINGS
-- SP_TRAKSYS_SAVE_APP_SETTING_BLOB -> REF_TRAKSYS_SETTINGS
-- SP_TRAKSYS_GET_QUESTIONS -> REF_TRAKSYS_QUESTIONS
-- SP_TRAKSYS_SAVE_QUESTION -> REF_TRAKSYS_QUESTIONS
-- SP_TRAKSYS_DELETE_QUESTION -> REF_TRAKSYS_QUESTIONS
+- {schema}.SP_TRAKSYS_GET_APP_SETTINGS -> REF_TRAKSYS_SETTINGS
+- {schema}.SP_TRAKSYS_SAVE_APP_SETTING -> REF_TRAKSYS_SETTINGS
+- {schema}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB -> REF_TRAKSYS_SETTINGS
+- {schema}.SP_TRAKSYS_GET_QUESTIONS -> REF_TRAKSYS_QUESTIONS
+- {schema}.SP_TRAKSYS_SAVE_QUESTION -> REF_TRAKSYS_QUESTIONS
+- {schema}.SP_TRAKSYS_DELETE_QUESTION -> REF_TRAKSYS_QUESTIONS
 """
 
 import logging
@@ -15,6 +15,7 @@ import json
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import streamlit as st
+from config import get_proc_name
 from services.snowflake_connection import get_snowflake_session
 
 logger = logging.getLogger("settings_service")
@@ -65,13 +66,14 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
         logger.info("Snowflake session unavailable; returning empty question list.")
         return []
 
+    proc_name = get_proc_name("SP_TRAKSYS_GET_QUESTIONS")
     df = None
     # 1. Try Procedure Call
     try:
-        df = session.sql("CALL SP_TRAKSYS_GET_QUESTIONS()").to_pandas()
-        logger.info(f"SP_TRAKSYS_GET_QUESTIONS() returned {len(df) if df is not None else 0} rows.")
+        df = session.sql(f"CALL {proc_name}()").to_pandas()
+        logger.info(f"Procedure {proc_name}() returned {len(df) if df is not None else 0} rows.")
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_GET_QUESTIONS() unavailable ({e_proc}), trying direct table select.")
+        logger.info(f"Procedure {proc_name}() unavailable ({e_proc}), trying direct table select.")
         # 2. Fallback to direct table SELECT
         try:
             df = session.sql("SELECT QUESTION_ID, QUESTION_TEXT, DISPLAY_ORDER, CREATED_BY, UPDATED_BY FROM REF_TRAKSYS_QUESTIONS WHERE IS_ACTIVE = TRUE ORDER BY DISPLAY_ORDER ASC, QUESTION_ID ASC").to_pandas()
@@ -82,7 +84,6 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
     if df is not None and not df.empty:
         questions = []
         for idx_r, row in df.iterrows():
-            # Check if row is a JSON string or dict returned by stored procedure
             if len(df.columns) == 1 and isinstance(row.iloc[0], str):
                 try:
                     j_obj = json.loads(row.iloc[0])
@@ -132,12 +133,13 @@ def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int
     esc_text = q_text.replace("'", "''")
     esc_user = user_val.replace("'", "''")
     qid_val = q_id if q_id and q_id > 0 else 'NULL'
+    proc_name = get_proc_name("SP_TRAKSYS_SAVE_QUESTION")
 
     try:
-        session.sql(f"CALL SP_TRAKSYS_SAVE_QUESTION({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_name}({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_SAVE_QUESTION unavailable ({e_proc}), trying direct table DML.")
+        logger.info(f"Procedure {proc_name} unavailable ({e_proc}), trying direct table DML.")
         try:
             if q_id and q_id > 0:
                 session.sql(f"UPDATE REF_TRAKSYS_QUESTIONS SET QUESTION_TEXT = '{esc_text}', DISPLAY_ORDER = {q_order}, UPDATED_BY = '{esc_user}', UPDATED_AT = CURRENT_TIMESTAMP() WHERE QUESTION_ID = {q_id}").collect()
@@ -156,12 +158,13 @@ def delete_suggested_question_from_db(q_id: int, user: Optional[str] = None) -> 
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
+    proc_name = get_proc_name("SP_TRAKSYS_DELETE_QUESTION")
 
     try:
-        session.sql(f"CALL SP_TRAKSYS_DELETE_QUESTION({q_id}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_name}({q_id}, '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_DELETE_QUESTION unavailable ({e_proc}), trying direct table UPDATE.")
+        logger.info(f"Procedure {proc_name} unavailable ({e_proc}), trying direct table UPDATE.")
         try:
             session.sql(f"UPDATE REF_TRAKSYS_QUESTIONS SET IS_ACTIVE = FALSE, UPDATED_BY = '{esc_user}', UPDATED_AT = CURRENT_TIMESTAMP() WHERE QUESTION_ID = {q_id}").collect()
             return True
@@ -179,11 +182,12 @@ def load_app_settings_from_db() -> Dict[str, Any]:
     if session is None:
         return {"settings": settings, "logo_bytes": logo_bytes}
 
+    proc_name = get_proc_name("SP_TRAKSYS_GET_APP_SETTINGS")
     df = None
     try:
-        df = session.sql("CALL SP_TRAKSYS_GET_APP_SETTINGS()").to_pandas()
+        df = session.sql(f"CALL {proc_name}()").to_pandas()
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_GET_APP_SETTINGS unavailable ({e_proc}), trying direct table select.")
+        logger.info(f"Procedure {proc_name}() unavailable ({e_proc}), trying direct table select.")
         try:
             df = session.sql("SELECT SETTING_KEY, SETTING_VALUE, SETTING_BLOB, CREATED_BY, UPDATED_BY FROM REF_TRAKSYS_SETTINGS").to_pandas()
         except Exception as e_table:
@@ -240,12 +244,13 @@ def save_app_setting_to_db(key: str, val: Any, user: Optional[str] = None) -> bo
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
     val_str = str(val).replace("'", "''")
+    proc_name = get_proc_name("SP_TRAKSYS_SAVE_APP_SETTING")
 
     try:
-        session.sql(f"CALL SP_TRAKSYS_SAVE_APP_SETTING('{key.upper()}', '{val_str}', '{esc_user}')").collect()
+        session.sql(f"CALL {proc_name}('{key.upper()}', '{val_str}', '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_SAVE_APP_SETTING unavailable ({e_proc}), trying direct table MERGE.")
+        logger.info(f"Procedure {proc_name} unavailable ({e_proc}), trying direct table MERGE.")
         try:
             session.sql(f"""
                 MERGE INTO REF_TRAKSYS_SETTINGS t
@@ -268,12 +273,13 @@ def save_app_logo_to_db(logo_bytes: Optional[bytes], user: Optional[str] = None)
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
     hex_str = logo_bytes.hex()
+    proc_name = get_proc_name("SP_TRAKSYS_SAVE_APP_SETTING_BLOB")
 
     try:
-        session.sql(f"CALL SP_TRAKSYS_SAVE_APP_SETTING_BLOB('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
+        session.sql(f"CALL {proc_name}('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.info(f"Procedure SP_TRAKSYS_SAVE_APP_SETTING_BLOB unavailable ({e_proc}), trying direct table MERGE.")
+        logger.info(f"Procedure {proc_name} unavailable ({e_proc}), trying direct table MERGE.")
         try:
             session.sql(f"""
                 MERGE INTO REF_TRAKSYS_SETTINGS t
