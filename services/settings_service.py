@@ -1,12 +1,12 @@
 """Settings Service for DB persistence and Session State management.
 
 Loads and saves settings to Snowflake DB strictly via stored procedures:
-- {schema}.SP_TRAKSYS_GET_APP_SETTINGS
-- {schema}.SP_TRAKSYS_SAVE_APP_SETTING
-- {schema}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB
-- {schema}.SP_TRAKSYS_GET_QUESTIONS
-- {schema}.SP_TRAKSYS_SAVE_QUESTION
-- {schema}.SP_TRAKSYS_DELETE_QUESTION
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_APP_SETTINGS
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_QUESTIONS
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_QUESTION
+- {DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_QUESTION
 """
 
 import logging
@@ -15,7 +15,7 @@ import json
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import streamlit as st
-from config import get_proc_name
+from config import DB, APP_SCHEMA
 from services.snowflake_connection import get_snowflake_session
 
 logger = logging.getLogger("settings_service")
@@ -60,18 +60,18 @@ def _row_val(row: Any, possible_keys: List[str], positional_idx: Optional[int] =
 
 
 def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
-    """Fetch suggested questions strictly from Snowflake DB procedure SP_TRAKSYS_GET_QUESTIONS()."""
+    """Fetch suggested questions strictly from Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_QUESTIONS()."""
     session = get_snowflake_session()
     if session is None:
         logger.info("Snowflake session unavailable; returning empty question list.")
         return []
 
-    proc_name = get_proc_name("SP_TRAKSYS_GET_QUESTIONS")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_QUESTIONS"
     try:
-        df = session.sql(f"CALL {proc_name}()").to_pandas()
-        logger.info(f"Procedure {proc_name}() returned {len(df) if df is not None else 0} rows.")
+        df = session.sql(f"CALL {proc_call}()").to_pandas()
+        logger.info(f"Procedure {proc_call}() returned {len(df) if df is not None else 0} rows.")
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}(): {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}(): {e_proc}")
         return []
 
     if df is not None and not df.empty:
@@ -117,7 +117,7 @@ def load_suggested_questions_from_db() -> List[Dict[str, Any]]:
 
 
 def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int = 1, user: Optional[str] = None) -> bool:
-    """Save or update a suggested question strictly via Snowflake DB procedure SP_TRAKSYS_SAVE_QUESTION()."""
+    """Save or update a suggested question strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_QUESTION()."""
     session = get_snowflake_session()
     if session is None:
         return False
@@ -125,35 +125,35 @@ def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int
     esc_text = q_text.replace("'", "''")
     esc_user = user_val.replace("'", "''")
     qid_val = q_id if q_id and q_id > 0 else 'NULL'
-    proc_name = get_proc_name("SP_TRAKSYS_SAVE_QUESTION")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_QUESTION"
 
     try:
-        session.sql(f"CALL {proc_name}({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}: {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
         return False
 
 
 def delete_suggested_question_from_db(q_id: int, user: Optional[str] = None) -> bool:
-    """Delete (soft-delete) a suggested question strictly via Snowflake DB procedure SP_TRAKSYS_DELETE_QUESTION()."""
+    """Delete (soft-delete) a suggested question strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_QUESTION()."""
     session = get_snowflake_session()
     if session is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
-    proc_name = get_proc_name("SP_TRAKSYS_DELETE_QUESTION")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_QUESTION"
 
     try:
-        session.sql(f"CALL {proc_name}({q_id}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}({q_id}, '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}: {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
         return False
 
 
 def load_app_settings_from_db() -> Dict[str, Any]:
-    """Load settings key-values and logo blob strictly via Snowflake DB procedure SP_TRAKSYS_GET_APP_SETTINGS()."""
+    """Load settings key-values and logo blob strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_APP_SETTINGS()."""
     settings = {}
     logo_bytes = None
 
@@ -161,11 +161,11 @@ def load_app_settings_from_db() -> Dict[str, Any]:
     if session is None:
         return {"settings": settings, "logo_bytes": logo_bytes}
 
-    proc_name = get_proc_name("SP_TRAKSYS_GET_APP_SETTINGS")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_APP_SETTINGS"
     try:
-        df = session.sql(f"CALL {proc_name}()").to_pandas()
+        df = session.sql(f"CALL {proc_call}()").to_pandas()
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}(): {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}(): {e_proc}")
         return {"settings": settings, "logo_bytes": logo_bytes}
 
     if df is not None and not df.empty:
@@ -212,36 +212,36 @@ def load_app_settings_from_db() -> Dict[str, Any]:
 
 
 def save_app_setting_to_db(key: str, val: Any, user: Optional[str] = None) -> bool:
-    """Save setting string key-value strictly via Snowflake DB procedure SP_TRAKSYS_SAVE_APP_SETTING()."""
+    """Save setting string key-value strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING()."""
     session = get_snowflake_session()
     if session is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
     val_str = str(val).replace("'", "''")
-    proc_name = get_proc_name("SP_TRAKSYS_SAVE_APP_SETTING")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING"
 
     try:
-        session.sql(f"CALL {proc_name}('{key.upper()}', '{val_str}', '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('{key.upper()}', '{val_str}', '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}: {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
         return False
 
 
 def save_app_logo_to_db(logo_bytes: Optional[bytes], user: Optional[str] = None) -> bool:
-    """Save binary logo bytes strictly via Snowflake DB procedure SP_TRAKSYS_SAVE_APP_SETTING_BLOB()."""
+    """Save binary logo bytes strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB()."""
     session = get_snowflake_session()
     if session is None or logo_bytes is None:
         return False
     user_val = user or _get_current_username()
     esc_user = user_val.replace("'", "''")
     hex_str = logo_bytes.hex()
-    proc_name = get_proc_name("SP_TRAKSYS_SAVE_APP_SETTING_BLOB")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB"
 
     try:
-        session.sql(f"CALL {proc_name}('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
         return True
     except Exception as e_proc:
-        logger.error(f"Failed to call procedure {proc_name}: {e_proc}")
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
         return False
