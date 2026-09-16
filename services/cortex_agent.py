@@ -343,7 +343,10 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         }
 
 
-def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict[str, Any]]:
+def collect_response(
+    events: Generator[Dict[str, Any], None, None],
+    status_callback: Optional[Any] = None
+) -> List[Dict[str, Any]]:
     """Merge streaming deltas into a list of finished, ordered content blocks.
 
     Filter out thinking/reasoning/planning events (`response.thinking`, etc.) and process strictly:
@@ -351,14 +354,47 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
     - `response.table` / `response.tool_results` (for data tables)
     - `response.chart` (for Vega/Plotly charts)
     - `response.suggested_queries` (for follow-up questions)
+
+    Calls status_callback(status_text) when progress state updates.
     """
     text_buf = ""
     blocks = []
     seen_chart_specs = set()
     suggested_queries_list = []
     extracted_sql_query = None
+    last_status = None
+
+    def update_status(msg: str):
+        nonlocal last_status
+        if msg != last_status:
+            last_status = msg
+            if status_callback and callable(status_callback):
+                try:
+                    status_callback(msg)
+                except Exception:
+                    pass
+
+    update_status("🧠 Analyzing question with Cortex Analyst...")
 
     for evt_wrapper in events:
+        evt_type = str(evt_wrapper.get("event", ""))
+        data = evt_wrapper.get("data", {})
+        if not isinstance(data, dict):
+            continue
+
+        # Dynamic progress updates based on event metadata
+        tool_name = (
+            data.get("tool_use", {}).get("name") or
+            data.get("name") or
+            (data.get("delta", {}).get("name") if isinstance(data.get("delta"), dict) else None)
+        )
+
+        if tool_name == "traksys_analyst" or "analyst" in str(tool_name).lower():
+            update_status("🛠️ Formulating SQL query via Semantic View...")
+        elif tool_name == "sql_exec" or "sql" in str(tool_name).lower():
+            update_status("⚡ Executing query on Snowflake warehouse...")
+        elif tool_name == "data_to_chart" or "chart" in str(tool_name).lower() or evt_type == "response.chart":
+            update_status("📊 Rendering chart visualization...")
         evt_type = str(evt_wrapper.get("event", ""))
         data = evt_wrapper.get("data", {})
         if not isinstance(data, dict):
@@ -427,6 +463,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
                 text_buf = ""
             else:
                 text_buf += delta_clean
+                update_status("✍️ Synthesizing analytical insights...")
 
         # --- Extract Tool Results / Data strictly for response.table / response.tool_results ---
         is_tool_res = (
@@ -436,6 +473,7 @@ def collect_response(events: Generator[Dict[str, Any], None, None]) -> List[Dict
             "statement_handle" in data
         )
         if is_tool_res:
+            update_status("⚡ Processing query results data...")
             if text_buf:
                 cleaned_text = deduplicate_paragraphs(text_buf)
                 if cleaned_text:

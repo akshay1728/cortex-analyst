@@ -739,13 +739,17 @@ else:
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
             preview = active_prompt.strip()[:60] + ("…" if len(active_prompt.strip()) > 60 else "")
             with st.expander(f"💬 {preview}", expanded=True):
-                with st.spinner("🤖 Calling Cortex Agent..."):
-                    api_messages = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.messages
-                    ]
-                    events = call_agent(api_messages)
-                    blocks = collect_response(events)
+                status_placeholder = st.empty()
+                def update_cortex_status(msg: str):
+                    status_placeholder.markdown(f"🤖 *{msg}*")
+
+                api_messages = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages
+                ]
+                events = call_agent(api_messages)
+                blocks = collect_response(events, status_callback=update_cortex_status)
+                status_placeholder.empty()
 
                 latest_df = None
                 active_idx = len(st.session_state.messages)
