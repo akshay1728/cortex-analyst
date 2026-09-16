@@ -111,24 +111,22 @@ def render_kpi_cards(kpis: Dict[str, Any], targets: Dict[str, float] = None):
 
 
 def render_sample_questions(on_click_callback):
-    """Render quick sample question buttons dynamically loaded from DB or session state."""
+    """Render quick sample question buttons dynamically loaded strictly from DB or session state."""
     st.markdown("##### 💡 Suggested Questions")
 
-    if "suggested_questions_list" in st.session_state and st.session_state.suggested_questions_list:
-        sample_questions = [q_obj["text"] for q_obj in st.session_state.suggested_questions_list]
+    sq_list = st.session_state.get("suggested_questions_list", [])
+    if sq_list:
+        sample_questions = [q_obj["text"] for q_obj in sq_list if isinstance(q_obj, dict) and q_obj.get("text")]
     else:
-        sample_questions = [
-            "What is our overall OEE trend over time?",
-            "Compare OEE by plant",
-            "Which line has the highest downtime?",
-            "What are the top downtime causes?",
-            "Show quality rate by product family",
-            "Show breakdown of good vs defective units"
-        ]
+        sample_questions = []
 
-    cols = st.columns(3)
+    if not sample_questions:
+        st.info("No suggested questions configured in the database.")
+        return
+
+    cols = st.columns(min(len(sample_questions), 3))
     for idx, q in enumerate(sample_questions):
-        cols[idx % 3].button(
+        cols[idx % min(len(sample_questions), 3)].button(
             q,
             key=f"sq_{idx}",
             use_container_width=True,
