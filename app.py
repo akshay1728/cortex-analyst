@@ -22,7 +22,6 @@ import pandas as pd
 import numpy as np
 
 from config import APP_TITLE, APP_ICON, DB, ANALYTICS_SCHEMA
-from data.sample_data import calculate_aggregated_oee
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
@@ -578,20 +577,19 @@ else:
                 logger.warning(f"Unable to query view {DB}.{ANALYTICS_SCHEMA}.VW_OEE_KPI_CARDS: {e_kpi}")
 
         # Fallback if view query fails
-        calc_kpis = calculate_aggregated_oee(df_filtered) if not df_filtered.empty else {}
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         yesterday_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         return {
-            "current_oee": calc_kpis.get("oee", 0.0),
-            "previous_oee": calc_kpis.get("oee", 0.0),
-            "current_availability": calc_kpis.get("availability", 0.0),
-            "previous_availability": calc_kpis.get("availability", 0.0),
-            "current_performance": calc_kpis.get("performance", 0.0),
-            "previous_performance": calc_kpis.get("performance", 0.0),
-            "current_quality": calc_kpis.get("quality", 0.0),
-            "previous_quality": calc_kpis.get("quality", 0.0),
-            "current_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
-            "previous_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
+            "current_oee": 0.0,
+            "previous_oee": 0.0,
+            "current_availability": 0.0,
+            "previous_availability": 0.0,
+            "current_performance": 0.0,
+            "previous_performance": 0.0,
+            "current_quality": 0.0,
+            "previous_quality": 0.0,
+            "current_downtime_hours": 0.0,
+            "previous_downtime_hours": 0.0,
             "latest_date": today_str,
             "previous_date": yesterday_str
         }

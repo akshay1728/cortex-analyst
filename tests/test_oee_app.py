@@ -4,7 +4,6 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from data.sample_data import generate_oee_dataset, calculate_aggregated_oee
 from services.cortex_analyst import CortexAnalystService
 from services.cortex_ai import CortexAIService
 from services.python_validator import PythonValidator
@@ -12,30 +11,26 @@ from ui.chart_renderer import ChartRenderer
 
 @pytest.fixture
 def sample_df():
-    return generate_oee_dataset(days=30, seed=123)
-
-def test_data_generation(sample_df):
-    assert not sample_df.empty
-    assert len(sample_df) > 0
-    expected_cols = [
-        "date", "plant", "line", "shift", "product_family", "product",
-        "planned_hours", "downtime_hours", "operating_hours", "downtime_reason",
-        "target_rate", "total_units", "good_units", "reject_units",
-        "availability", "performance", "quality", "oee"
-    ]
-    for col in expected_cols:
-        assert col in sample_df.columns
-
-def test_aggregated_oee_calculation(sample_df):
-    metrics = calculate_aggregated_oee(sample_df)
-    assert "oee" in metrics
-    assert "availability" in metrics
-    assert "performance" in metrics
-    assert "quality" in metrics
-    assert 0 <= metrics["oee"] <= 100
-    assert 0 <= metrics["availability"] <= 100
-    assert 0 <= metrics["performance"] <= 100
-    assert 0 <= metrics["quality"] <= 100
+    return pd.DataFrame({
+        "date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+        "plant": ["Plant Alpha (Detroit)", "Plant Alpha (Detroit)", "Plant Beta (Austin)"],
+        "line": ["Line 1", "Line 1", "Line 2"],
+        "shift": ["Shift 1", "Shift 2", "Shift 1"],
+        "product_family": ["Motors", "Motors", "Inverters"],
+        "product": ["EM-500", "EM-500", "PI-200"],
+        "planned_hours": [8.0, 8.0, 8.0],
+        "downtime_hours": [0.5, 1.2, 0.8],
+        "operating_hours": [7.5, 6.8, 7.2],
+        "downtime_reason": ["Operator Absence", "Tool Change & Setup", "Material Shortage"],
+        "target_rate": [100, 100, 120],
+        "total_units": [700, 650, 800],
+        "good_units": [680, 630, 780],
+        "reject_units": [20, 20, 20],
+        "availability": [93.75, 85.0, 90.0],
+        "performance": [93.33, 95.58, 92.59],
+        "quality": [97.14, 96.92, 97.5],
+        "oee": [85.0, 78.7, 81.2]
+    })
 
 def test_cortex_analyst_queries(sample_df):
     analyst = CortexAnalystService(sample_df)

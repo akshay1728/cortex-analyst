@@ -3,7 +3,6 @@
 import streamlit as st
 import pandas as pd
 from typing import Dict, Any, List
-from data.sample_data import calculate_aggregated_oee
 
 
 
