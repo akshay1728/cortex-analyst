@@ -13,10 +13,35 @@ from services.settings_service import (
 )
 
 
+# --------------------------------------------------------------------------
+# Flash messages: st.success()/st.warning() right before st.rerun() never
+# gets a chance to paint, since the rerun tears down the script before the
+# browser renders that frame. Stash the message in session state instead and
+# show it on the run that follows the rerun.
+# --------------------------------------------------------------------------
+def _flash(kind: str, message: str):
+    st.session_state["_settings_flash"] = (kind, message)
+
+
+def _render_flash():
+    flash = st.session_state.pop("_settings_flash", None)
+    if flash:
+        kind, message = flash
+        getattr(st, kind)(message)
+
+
+def _spacer():
+    """A single short spacer to align a button with the input beside it,
+    in place of a pair of st.write("") calls."""
+    st.markdown('<div style="height: 28px"></div>', unsafe_allow_html=True)
+
+
 def render_settings_page():
     """Render the application settings page."""
-    st.markdown("## ⚙️ Application Settings")
-    st.markdown("Configure suggested questions, application parameters, Cortex Agent DB settings, company logo, and header text.")
+    st.markdown('<div class="section-label">⚙️ Application Settings</div>', unsafe_allow_html=True)
+    st.caption("Configure suggested questions, application parameters, Cortex Agent DB settings, company logo, and header text.")
+
+    _render_flash()
 
     # Load suggested questions and settings from DB
     if "db_questions_loaded" not in st.session_state or st.session_state.get("suggested_questions_list") is None:
@@ -42,21 +67,35 @@ def render_settings_page():
 
         st.session_state.db_settings_loaded = True
 
-    # --- Section 1: Suggested Questions Management (DB Backed) ---
-    with st.expander("💡 Suggested Questions Management (DB)", expanded=True):
-        st.markdown("Manage sample questions shown at the top of the chat assistant. Questions are fetched from and stored in the database.")
+    tab_questions, tab_logo, tab_connection, tab_header = st.tabs([
+        "💡 Suggested Questions",
+        "🖼️ Logo",
+        "⚙️ Connection & Agent",
+        "🏷️ Header & Banner",
+    ])
 
+    # --- Suggested Questions Management (DB Backed) ---
+    with tab_questions:
         top_col1, top_col2 = st.columns([7, 3])
+        with top_col1:
+            st.caption("Manage the sample questions shown at the top of the chat assistant. Questions are fetched from and stored in the database.")
         with top_col2:
-            if st.button("🔄 Reload Questions from DB", key="reload_sq_btn"):
+            if st.button("🔄 Reload from DB", key="reload_sq_btn", use_container_width=True):
+                # Existing text_input/number_input widgets are keyed, so
+                # Streamlit ignores value= on later runs unless their keys
+                # are cleared first — otherwise "reload" just redisplays
+                # whatever was last typed instead of the DB's rows.
+                for k in list(st.session_state.keys()):
+                    if k.startswith("sq_text_in_") or k.startswith("sq_order_in_"):
+                        del st.session_state[k]
                 st.session_state.suggested_questions_list = load_suggested_questions_from_db()
-                st.success("Refreshed questions from database.")
+                _flash("success", "Refreshed questions from database.")
                 st.rerun()
 
         sq_list = st.session_state.get("suggested_questions_list", [])
 
         if sq_list:
-            st.markdown("##### Existing Database Questions:")
+            st.markdown("##### Existing questions")
             for idx, q_obj in enumerate(sq_list):
                 c1, c2, c3 = st.columns([6, 2, 2])
                 with c1:
@@ -74,13 +113,12 @@ def render_settings_page():
                         key=f"sq_order_in_{q_obj.get('id', idx)}_{idx}"
                     )
                 with c3:
-                    st.write("")
-                    st.write("")
+                    _spacer()
                     if st.button("❌ Remove", key=f"sq_del_{q_obj.get('id', idx)}_{idx}"):
                         if q_obj.get("id"):
                             delete_suggested_question_from_db(q_obj["id"])
                         st.session_state.suggested_questions_list.pop(idx)
-                        st.success("Question removed.")
+                        _flash("success", "Question removed.")
                         st.rerun()
 
                 sq_list[idx]["text"] = q_text_input
@@ -89,23 +127,21 @@ def render_settings_page():
             st.info("No suggested questions found in the database. Add a new question below.")
 
         st.divider()
-        st.markdown("##### ➕ Add New Suggested Question")
+        st.markdown("##### ➕ Add new question")
         new_c1, new_c2 = st.columns([8, 2])
         with new_c1:
             new_q_text = st.text_input("New Question Text", key="new_sq_text_input")
         with new_c2:
-            st.write("")
-            st.write("")
-            if st.button("➕ Add Question", key="add_sq_btn"):
+            _spacer()
+            if st.button("➕ Add Question", key="add_sq_btn", use_container_width=True):
                 if new_q_text.strip():
                     new_order = len(sq_list) + 1
                     save_suggested_question_to_db(None, new_q_text.strip(), new_order)
                     st.session_state.suggested_questions_list = load_suggested_questions_from_db()
-                    st.success("New question added to database!")
+                    _flash("success", "New question added to database!")
                     st.rerun()
                 else:
                     st.warning("Please enter question text.")
-
 
     # --- Hidden Metric Colors Section (Hidden for now as requested) ---
     HIDE_METRIC_COLORS = True
@@ -163,9 +199,9 @@ def render_settings_page():
                 }
                 st.divider()
 
-    # --- Section 3: Company Logo Settings (DB Backed) ---
-    with st.expander("🖼️ Company Logo Settings (DB)", expanded=False):
-        st.markdown("Upload a custom logo stored in the database to display in the sidebar header and PDF export reports.")
+    # --- Company Logo Settings (DB Backed) ---
+    with tab_logo:
+        st.caption("Upload a custom logo stored in the database to display in the sidebar header and PDF export reports.")
         uploaded_logo = st.file_uploader("Upload Company Logo (PNG / JPG)", type=["png", "jpg", "jpeg"])
 
         if uploaded_logo is not None:
@@ -179,11 +215,12 @@ def render_settings_page():
             if st.button("Reset to Default Logo"):
                 st.session_state.settings_custom_logo_bytes = None
                 save_app_setting_to_db("COMPANY_LOGO", "")
+                _flash("success", "Logo reset to default.")
                 st.rerun()
 
-    # --- Section 4: Cortex Agent & Database Configuration ---
-    with st.expander("⚙️ Cortex Agent & Database Parameters", expanded=False):
-        st.markdown("Configure Snowflake DB parameters, Cortex Agent models, tools, and history limit.")
+    # --- Cortex Agent & Database Configuration ---
+    with tab_connection:
+        st.caption("Configure Snowflake DB parameters, Cortex Agent models, tools, and history limit.")
 
         col_cfg1, col_cfg2 = st.columns(2)
         with col_cfg1:
@@ -228,9 +265,9 @@ def render_settings_page():
         st.session_state.settings_history_count = hist_count
         st.session_state.settings_pdf_filename_template = pdf_template
 
-    # --- Section 5: Header & Banner Settings ---
-    with st.expander("🏷️ Header & Banner Text Settings", expanded=False):
-        st.markdown("Customize the title and subtitle shown on the main page banner.")
+    # --- Header & Banner Settings ---
+    with tab_header:
+        st.caption("Customize the title and subtitle shown on the main page banner.")
         h_title = st.text_input(
             "Banner Title",
             value=st.session_state.settings_header_title,
@@ -261,9 +298,8 @@ def render_settings_page():
         save_app_setting_to_db("ORCHESTRATION_MODEL", st.session_state.settings_orchestration_model)
         save_app_setting_to_db("HISTORY_COUNT", st.session_state.settings_history_count)
 
-
         if st.session_state.settings_custom_logo_bytes is not None:
             save_app_logo_to_db(st.session_state.settings_custom_logo_bytes)
 
-        st.success("All Settings & Suggested Questions saved successfully to Database!")
+        _flash("success", "All settings & suggested questions saved successfully to database!")
         st.rerun()
