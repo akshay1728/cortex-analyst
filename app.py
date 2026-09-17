@@ -710,9 +710,9 @@ else:
                             tool_df = tool_results_to_df(b.get("content"))
                             if tool_df is not None and not tool_df.empty:
                                 last_df = tool_df
-                                _subsection("📋", "Queried Data Table")
-                                styled_df = style_dataframe_metrics(tool_df, st.session_state.settings_colors)
-                                st.dataframe(styled_df, use_container_width=True, key=f"hist_tool_df_{idx}_{b_idx}")
+                                with st.expander("📋 Queried Data Table", expanded=False):
+                                    styled_df = style_dataframe_metrics(tool_df, st.session_state.settings_colors)
+                                    st.dataframe(styled_df, use_container_width=True, key=f"hist_tool_df_{idx}_{b_idx}")
                         elif b.get("type") == "suggested_queries":
                             for q_item in b.get("queries", []):
                                 if q_item not in suggested_queries:
@@ -723,9 +723,9 @@ else:
                         st.code(msg_sql, language="sql")
 
                 elif "data" in msg and msg["data"] is not None and not msg["data"].empty:
-                    _subsection("📋", "Queried Data Table")
-                    styled_df = style_dataframe_metrics(msg["data"], st.session_state.settings_colors)
-                    st.dataframe(styled_df, use_container_width=True, key=f"hist_df_{idx}")
+                    with st.expander("📋 Queried Data Table", expanded=False):
+                        styled_df = style_dataframe_metrics(msg["data"], st.session_state.settings_colors)
+                        st.dataframe(styled_df, use_container_width=True, key=f"hist_df_{idx}")
 
                 # Display suggested query buttons ONLY if this is the active latest assistant message
                 if is_latest and suggested_queries:
@@ -779,9 +779,9 @@ else:
                     elif b["type"] == "tool_results":
                         latest_df = tool_results_to_df(b["content"])
                         if latest_df is not None and not latest_df.empty:
-                            _subsection("📋", "Queried Data Table")
-                            styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
-                            st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
+                            with st.expander("📋 Queried Data Table", expanded=False):
+                                styled_data = style_dataframe_metrics(latest_df, st.session_state.settings_colors)
+                                st.dataframe(styled_data, use_container_width=True, key=f"act_df_{active_idx}_{b_idx}")
                     elif b["type"] == "chart":
                         chart_target = b.get("spec") or b.get("figure")
                         render_chart(chart_target, latest_df, key=f"act_chart_{active_idx}_{b_idx}")
