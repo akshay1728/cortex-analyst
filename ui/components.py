@@ -5,84 +5,6 @@ import pandas as pd
 from typing import Dict, Any, List
 from data.sample_data import calculate_aggregated_oee
 
-def _find_col(df: pd.DataFrame, target_name: str) -> str:
-    """Find a column in DataFrame matching target_name (case-insensitive)."""
-    if df is None or df.empty:
-        return None
-    for col in df.columns:
-        if str(col).lower() == target_name.lower():
-            return col
-    return None
-
-def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
-    """Render sidebar filters and return user selected options.
-
-    Uses relative `st.xxx(...)` calls so this renders correctly whichever container it's called from.
-    Handles case-insensitive column lookups for 'date', 'plant', 'line', 'shift', 'product_family'.
-    """
-    if df is None or df.empty:
-        st.info("No telemetry dataset loaded.")
-        return {
-            "date_range": (),
-            "plants": ["All"],
-            "lines": ["All"],
-            "shifts": ["All"],
-            "product_families": ["All"]
-        }
-
-    date_col = _find_col(df, "date")
-    plant_col = _find_col(df, "plant")
-    line_col = _find_col(df, "line")
-    shift_col = _find_col(df, "shift")
-    family_col = _find_col(df, "product_family")
-
-    # Date Range Filter
-    date_range = ()
-    if date_col:
-        try:
-            date_series = pd.to_datetime(df[date_col])
-            min_date = date_series.min().date()
-            max_date = date_series.max().date()
-            date_range = st.date_input(
-                "Date Range",
-                value=(min_date, max_date),
-                min_value=min_date,
-                max_value=max_date
-            )
-        except Exception:
-            pass
-
-    # Plant Filter
-    selected_plants = ["All"]
-    if plant_col:
-        available_plants = ["All"] + sorted(list(df[plant_col].dropna().astype(str).unique()))
-        selected_plants = st.multiselect("Select Plant(s)", options=available_plants, default=["All"])
-
-    # Line Filter
-    selected_lines = ["All"]
-    if line_col:
-        available_lines = ["All"] + sorted(list(df[line_col].dropna().astype(str).unique()))
-        selected_lines = st.multiselect("Select Line(s)", options=available_lines, default=["All"])
-
-    # Shift Filter
-    selected_shifts = ["All"]
-    if shift_col:
-        available_shifts = ["All"] + sorted(list(df[shift_col].dropna().astype(str).unique()))
-        selected_shifts = st.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
-
-    # Product Family Filter
-    selected_families = ["All"]
-    if family_col:
-        available_families = ["All"] + sorted(list(df[family_col].dropna().astype(str).unique()))
-        selected_families = st.multiselect("Product Family", options=available_families, default=["All"])
-
-    return {
-        "date_range": date_range,
-        "plants": selected_plants,
-        "lines": selected_lines,
-        "shifts": selected_shifts,
-        "product_families": selected_families
-    }
 
 
 def render_kpi_cards(kpi_data: Dict[str, Any]):
@@ -127,7 +49,7 @@ def render_kpi_cards(kpi_data: Dict[str, Any]):
     col2.metric("Availability", f"{curr_avail:.1f}%", delta=f"{diff_avail:+.1f}% vs Prev ({prev_avail:.1f}%)")
     col3.metric("Performance", f"{curr_perf:.1f}%", delta=f"{diff_perf:+.1f}% vs Prev ({prev_perf:.1f}%)")
     col4.metric("Quality", f"{curr_qual:.1f}%", delta=f"{diff_qual:+.1f}% vs Prev ({prev_qual:.1f}%)")
-    col5.metric("Downtime Hours", f"{curr_dt:.1f} hrs", delta=f"{diff_dt:+.1f} hrs vs Prev", delta_color="inverse")
+    col5.metric("Downtime Hours", f"{round(curr_dt):,d} hrs", delta=f"{round(diff_dt):+,d} hrs vs Prev", delta_color="inverse")
 
 
 def render_sample_questions(on_click_callback):

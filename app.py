@@ -26,7 +26,7 @@ from data.sample_data import calculate_aggregated_oee
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
-from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions, style_dataframe_metrics
+from ui.components import render_kpi_cards, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
 from services.cortex_analyst import CortexAnalystService
 from services.cortex_ai import CortexAIService
@@ -550,20 +550,13 @@ if nav_selection == "⚙️ Settings":
 
 else:
     # --- Chat Assistant Page ---
-    # Hide filters section in sidebar for now as requested
-    HIDE_FILTERS_SIDEBAR = True
-    if not HIDE_FILTERS_SIDEBAR:
-        with st.sidebar.expander("🧭 Filters", expanded=True):
-            filters = render_sidebar_filters(df_raw)
-        st.sidebar.divider()
-    else:
-        filters = {
-            "date_range": (),
-            "plants": ["All"],
-            "lines": ["All"],
-            "shifts": ["All"],
-            "product_families": ["All"]
-        }
+    filters = {
+        "date_range": (),
+        "plants": ["All"],
+        "lines": ["All"],
+        "shifts": ["All"],
+        "product_families": ["All"]
+    }
 
     debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
