@@ -44,11 +44,27 @@ def render_kpi_cards(kpi_data: Dict[str, Any]):
     prev_dt = float(kpi_data.get("previous_downtime_hours", 0.0))
     diff_dt = curr_dt - prev_dt
 
-    col1.metric("Overall OEE", f"{curr_oee:.1f}%", delta=f"{diff_oee:+.1f}% vs Prev ({prev_oee:.1f}%)")
-    col2.metric("Availability", f"{curr_avail:.1f}%", delta=f"{diff_avail:+.1f}% vs Prev ({prev_avail:.1f}%)")
-    col3.metric("Performance", f"{curr_perf:.1f}%", delta=f"{diff_perf:+.1f}% vs Prev ({prev_perf:.1f}%)")
-    col4.metric("Quality", f"{curr_qual:.1f}%", delta=f"{diff_qual:+.1f}% vs Prev ({prev_qual:.1f}%)")
-    col5.metric("Downtime Hours", f"{round(curr_dt):,d} hrs", delta=f"{round(diff_dt):+,d} hrs vs Prev", delta_color="inverse")
+    def _metric_kwargs(diff_val, suffix="%", is_downtime=False, prev_val=None):
+        if abs(diff_val) < 0.05:
+            delta_str = f"0.0{suffix} vs Prev" if suffix == "%" else "0 hrs vs Prev"
+            if prev_val is not None and suffix == "%":
+                delta_str += f" ({prev_val:.1f}%)"
+            return {"delta": delta_str, "delta_color": "off"}
+
+        if is_downtime:
+            delta_str = f"{round(diff_val):+,d} hrs vs Prev"
+            return {"delta": delta_str, "delta_color": "inverse"}
+        else:
+            delta_str = f"{diff_val:+.1f}% vs Prev"
+            if prev_val is not None:
+                delta_str += f" ({prev_val:.1f}%)"
+            return {"delta": delta_str, "delta_color": "normal"}
+
+    col1.metric("Overall OEE", f"{curr_oee:.1f}%", **_metric_kwargs(diff_oee, "%", False, prev_oee))
+    col2.metric("Availability", f"{curr_avail:.1f}%", **_metric_kwargs(diff_avail, "%", False, prev_avail))
+    col3.metric("Performance", f"{curr_perf:.1f}%", **_metric_kwargs(diff_perf, "%", False, prev_perf))
+    col4.metric("Quality", f"{curr_qual:.1f}%", **_metric_kwargs(diff_qual, "%", False, prev_qual))
+    col5.metric("Downtime Hours", f"{round(curr_dt):,d} hrs", **_metric_kwargs(diff_dt, " hrs", True))
 
 
 def render_sample_questions(on_click_callback):
