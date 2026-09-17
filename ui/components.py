@@ -12,15 +12,14 @@ def render_kpi_cards(kpi_data: Dict[str, Any]):
     if not kpi_data:
         kpi_data = {}
 
-    curr_start = kpi_data.get("current_start_date") or kpi_data.get("curr_start") or "N/A"
-    curr_end = kpi_data.get("current_end_date") or kpi_data.get("curr_end") or "N/A"
-    prev_start = kpi_data.get("previous_start_date") or kpi_data.get("prev_start") or "N/A"
-    prev_end = kpi_data.get("previous_end_date") or kpi_data.get("prev_end") or "N/A"
+    # Read latest_date and previous_date directly from view data
+    latest_date = kpi_data.get("latest_date") or kpi_data.get("current_date") or kpi_data.get("current_end_date") or "N/A"
+    previous_date = kpi_data.get("previous_date") or kpi_data.get("prev_date") or kpi_data.get("previous_end_date") or "N/A"
 
     # Display comparison period dates
     st.caption(
-        f"📅 **Current Period:** {curr_start} to {curr_end} | "
-        f"📅 **Previous Comparison Period:** {prev_start} to {prev_end}"
+        f"📅 **Current Date:** {latest_date} | "
+        f"📅 **Previous Date:** {previous_date}"
     )
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -71,7 +70,7 @@ def render_sample_questions(on_click_callback):
         cols[idx % min(len(sample_questions), 3)].button(
             q,
             key=f"sq_{idx}",
-            use_container_width=True,
+            use_container_width=False,
             on_click=on_click_callback,
             args=(q,)
         )

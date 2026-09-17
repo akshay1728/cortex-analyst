@@ -579,6 +579,8 @@ else:
 
         # Fallback if view query fails
         calc_kpis = calculate_aggregated_oee(df_filtered) if not df_filtered.empty else {}
+        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        yesterday_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         return {
             "current_oee": calc_kpis.get("oee", 0.0),
             "previous_oee": calc_kpis.get("oee", 0.0),
@@ -590,10 +592,8 @@ else:
             "previous_quality": calc_kpis.get("quality", 0.0),
             "current_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
             "previous_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
-            "current_start_date": "Current Month",
-            "current_end_date": "Today",
-            "previous_start_date": "Prior Month",
-            "previous_end_date": "Prior Month End"
+            "latest_date": today_str,
+            "previous_date": yesterday_str
         }
 
     kpi_view_data = load_kpi_view_data()
