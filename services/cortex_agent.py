@@ -638,19 +638,39 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
             })
             spec["params"] = params
 
+        mark = spec.get("mark")
+        mark_type = mark if isinstance(mark, str) else (mark.get("type", "bar") if isinstance(mark, dict) else "bar")
+
         encoding = spec.get("encoding", {})
         if isinstance(encoding, dict):
-            # Enforce multi-color palette for bar / pie / categorical charts
             x_enc = encoding.get("x", {})
             cat_field = x_enc.get("field") if isinstance(x_enc, dict) else None
+            x_type = (x_enc.get("type") if isinstance(x_enc, dict) else "") or ""
 
-            # If color encoding is missing OR set to a single fixed color value, force categorical color mapping by x-axis field
+            # Detect if x_field is a date/time/temporal field
+            is_date_field = False
+            if cat_field:
+                field_lower = str(cat_field).lower()
+                if any(kw in field_lower for kw in ("date", "dt", "time", "day", "month", "year", "timestamp", "period")):
+                    is_date_field = True
+            if x_type.lower() in ("temporal", "quantitative"):
+                is_date_field = True
+
             color_enc = encoding.get("color")
+
+            # Fix existing color encoding if it was set to a date field (which breaks line charts & creates epoch legends)
+            if isinstance(color_enc, dict) and color_enc.get("field"):
+                color_field_lower = str(color_enc.get("field")).lower()
+                if is_date_field and color_field_lower == str(cat_field).lower():
+                    del encoding["color"]
+                    color_enc = None
+
+            # Enforce multi-color palette strictly for discrete categorical bar/pie/rect charts (NEVER for line/area or date x-axis)
             is_single_color = False
             if isinstance(color_enc, dict) and "value" in color_enc:
                 is_single_color = True
 
-            if (color_enc is None or is_single_color) and cat_field:
+            if (color_enc is None or is_single_color) and cat_field and not is_date_field and mark_type in ("bar", "arc", "rect", "circle", "square"):
                 encoding["color"] = {
                     "field": cat_field,
                     "type": "nominal",
@@ -679,9 +699,6 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                     encoding["tooltip"] = tooltip_channels
 
             # Add pop-out hover animations (opacity, strokeWidth, size)
-            mark = spec.get("mark")
-            mark_type = mark if isinstance(mark, str) else (mark.get("type", "bar") if isinstance(mark, dict) else "bar")
-
             mark_dict = mark if isinstance(mark, dict) else {"type": mark_type}
             mark_dict["tooltip"] = True
             mark_dict["cursor"] = "pointer"
@@ -695,7 +712,15 @@ def render_chart(spec_or_fig: Any, df: Optional[pd.DataFrame] = None, key: Optio
                 mark_dict["opacity"] = {"condition": {"param": "hover", "value": 1.0}, "value": 0.82}
                 mark_dict["stroke"] = "#ffffff"
                 mark_dict["strokeWidth"] = 1.0
-            elif mark_type in ("point", "line", "area", "circle", "square"):
+            elif mark_type in ("line", "area"):
+                mark_dict["color"] = mark_dict.get("color", "#242B6B")
+                mark_dict["strokeWidth"] = 2.5
+                mark_dict["point"] = {
+                    "size": {"condition": {"param": "hover", "value": 100}, "value": 35},
+                    "filled": True,
+                    "color": "#242B6B"
+                }
+            elif mark_type in ("point", "circle", "square"):
                 mark_dict["point"] = {
                     "size": {"condition": {"param": "hover", "value": 120}, "value": 40},
                     "filled": True
