@@ -255,7 +255,7 @@ def render_sample_questions(on_click_callback):
         cols[idx % col_count].button(
             q,
             key=f"sq_{idx}",
-            use_container_width=True,
+            use_container_width=False,
             on_click=on_click_callback,
             args=(q,)
         )

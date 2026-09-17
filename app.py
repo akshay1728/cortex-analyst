@@ -298,19 +298,74 @@ st.markdown(f"""
         opacity: 0.85;
     }}
 
+    /* Metrics elsewhere in the app stay flat — no card border, no nested box */
     div[data-testid="stMetric"] {{
-        background: {BRAND['card']};
-        border-radius: 14px;
-        padding: 16px 18px 12px 18px;
-        border: 1px solid {BRAND['border']};
-        box-shadow: 0 8px 20px -10px rgba({BRAND['shadow']}, 0.18),
-                    0 1px 3px rgba({BRAND['shadow']}, 0.05);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 10px 14px 10px 0;
     }}
-    div[data-testid="stMetric"]:hover {{
-        transform: translateY(-2px);
-        box-shadow: 0 14px 26px -10px rgba({BRAND['shadow']}, 0.24),
-                    0 2px 5px rgba({BRAND['shadow']}, 0.07);
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        font-family: 'Poppins', 'Inter', sans-serif;
+        color: {BRAND['navy_deep']};
+    }}
+
+    /* ---- Sidebar navigation ---- */
+    .sidebar-group {{
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: {BRAND['muted']};
+        letter-spacing: 0.2px;
+        margin: 16px 4px 8px 4px;
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] {{
+        gap: 3px;
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label {{
+        display: flex;
+        align-items: center;
+        width: 100%;
+        margin: 0;
+        padding: 10px 13px;
+        border: none;
+        border-radius: 11px;
+        cursor: pointer;
+        background: transparent;
+        transition: background 0.15s ease;
+    }}
+    /* Hide the radio dot — the highlighted row already shows what's selected */
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {{
+        display: none;
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label p {{
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: {BRAND['navy']};
+        margin: 0;
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {{
+        background: rgba({BRAND['shadow']}, 0.07);
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {{
+        background: linear-gradient(120deg, {BRAND['navy']}, {BRAND['navy_light']});
+        box-shadow: 0 8px 18px -10px rgba({BRAND['shadow']}, 0.55);
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {{
+        color: #FFFFFF;
+    }}
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:focus-within {{
+        outline: 2px solid {BRAND['gold']};
+        outline-offset: 2px;
+    }}
+    /* Sidebar controls sit directly on the panel, not in their own boxes */
+    section[data-testid="stSidebar"] div[data-testid="stExpander"] {{
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }}
+    section[data-testid="stSidebar"] .stDownloadButton > button {{
+        width: 100%;
+        justify-content: center;
     }}
 
     hr {{ border-color: {BRAND['border']}; }}
@@ -485,14 +540,19 @@ if logo_b64_str:
 # --------------------------------------------------------------------------
 # Navigation Sidebar
 # --------------------------------------------------------------------------
-st.sidebar.markdown("### 📌 Navigation")
-nav_selection = st.sidebar.radio(
-    "Go to",
-    options=["💬 Chat Assistant", "⚙️ Settings"],
-    label_visibility="collapsed"
-)
+NAV_ITEMS = {
+    "💬  Chat assistant": "chat",
+    "⚙️  Settings": "settings",
+}
 
-st.sidebar.divider()
+st.sidebar.markdown('<div class="sidebar-group">Go to</div>', unsafe_allow_html=True)
+nav_label = st.sidebar.radio(
+    "Go to",
+    options=list(NAV_ITEMS.keys()),
+    label_visibility="collapsed",
+    key="nav_selection",
+)
+nav_page = NAV_ITEMS[nav_label]
 
 # --------------------------------------------------------------------------
 # Render Dynamic Banner Header
@@ -544,7 +604,7 @@ st.write("")
 # --------------------------------------------------------------------------
 # Page Routing
 # --------------------------------------------------------------------------
-if nav_selection == "⚙️ Settings":
+if nav_page == "settings":
     render_settings_page()
 
 else:
@@ -557,7 +617,8 @@ else:
         "product_families": ["All"]
     }
 
-    debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
+    st.sidebar.markdown('<div class="sidebar-group">Tools</div>', unsafe_allow_html=True)
+    debug_mode = st.sidebar.toggle("Developer mode", value=False)
 
     # Filter Dataset
     df_filtered = analyst_service._apply_filters(df_raw, filters) if not df_raw.empty else df_raw
@@ -595,9 +656,9 @@ else:
         }
 
     kpi_view_data = load_kpi_view_data()
-    render_kpi_cards(kpi_view_data)
+    render_kpi_cards(kpi_view_data, brand=BRAND)
 
-    st.divider()
+    st.write("")
 
     if "pending_question" not in st.session_state:
         st.session_state.pending_question = None
@@ -817,8 +878,7 @@ else:
 # --------------------------------------------------------------------------
 with st.sidebar:
     if "messages" in st.session_state and len(st.session_state.messages) > 0:
-        st.divider()
-        st.markdown("### 📥 Export Conversation")
+        st.markdown('<div class="sidebar-group">Export</div>', unsafe_allow_html=True)
         try:
             today_str = datetime.datetime.now().strftime("%Y%m%d")
             today_dash = datetime.datetime.now().strftime("%Y-%m-%d")
