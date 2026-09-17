@@ -85,29 +85,49 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def render_kpi_cards(kpis: Dict[str, Any], targets: Dict[str, float] = None):
-    """Render KPI Metric Cards in top row comparing against target thresholds."""
-    if targets is None:
-        targets = {"oee": 85.0, "availability": 90.0, "performance": 95.0, "quality": 99.0}
+def render_kpi_cards(kpi_data: Dict[str, Any]):
+    """Render KPI Metric Cards in top row comparing current vs previous period."""
+    if not kpi_data:
+        kpi_data = {}
+
+    curr_start = kpi_data.get("current_start_date") or kpi_data.get("curr_start") or "N/A"
+    curr_end = kpi_data.get("current_end_date") or kpi_data.get("curr_end") or "N/A"
+    prev_start = kpi_data.get("previous_start_date") or kpi_data.get("prev_start") or "N/A"
+    prev_end = kpi_data.get("previous_end_date") or kpi_data.get("prev_end") or "N/A"
+
+    # Display comparison period dates
+    st.caption(
+        f"📅 **Current Period:** {curr_start} to {curr_end} | "
+        f"📅 **Previous Comparison Period:** {prev_start} to {prev_end}"
+    )
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
-    oee_val = kpis.get("oee", 0.0)
-    avail_val = kpis.get("availability", 0.0)
-    perf_val = kpis.get("performance", 0.0)
-    qual_val = kpis.get("quality", 0.0)
-    dt_val = kpis.get("total_downtime_hours", 0.0)
+    curr_oee = float(kpi_data.get("current_oee") or kpi_data.get("oee", 0.0))
+    prev_oee = float(kpi_data.get("previous_oee", 0.0))
+    diff_oee = curr_oee - prev_oee
 
-    target_oee = targets.get("oee", 85.0)
-    target_avail = targets.get("availability", 90.0)
-    target_perf = targets.get("performance", 95.0)
-    target_qual = targets.get("quality", 99.0)
+    curr_avail = float(kpi_data.get("current_availability") or kpi_data.get("availability", 0.0))
+    prev_avail = float(kpi_data.get("previous_availability", 0.0))
+    diff_avail = curr_avail - prev_avail
 
-    col1.metric("Overall OEE", f"{oee_val:.1f}%", delta=f"{oee_val - target_oee:.1f}% vs Target ({target_oee:.0f}%)")
-    col2.metric("Availability", f"{avail_val:.1f}%", delta=f"{avail_val - target_avail:.1f}% vs Target ({target_avail:.0f}%)")
-    col3.metric("Performance", f"{perf_val:.1f}%", delta=f"{perf_val - target_perf:.1f}% vs Target ({target_perf:.0f}%)")
-    col4.metric("Quality", f"{qual_val:.1f}%", delta=f"{qual_val - target_qual:.1f}% vs Target ({target_qual:.0f}%)")
-    col5.metric("Downtime Hours", f"{dt_val:.1f} hrs", delta_color="inverse")
+    curr_perf = float(kpi_data.get("current_performance") or kpi_data.get("performance", 0.0))
+    prev_perf = float(kpi_data.get("previous_performance", 0.0))
+    diff_perf = curr_perf - prev_perf
+
+    curr_qual = float(kpi_data.get("current_quality") or kpi_data.get("quality", 0.0))
+    prev_qual = float(kpi_data.get("previous_quality", 0.0))
+    diff_qual = curr_qual - prev_qual
+
+    curr_dt = float(kpi_data.get("current_downtime_hours") or kpi_data.get("total_downtime_hours", 0.0))
+    prev_dt = float(kpi_data.get("previous_downtime_hours", 0.0))
+    diff_dt = curr_dt - prev_dt
+
+    col1.metric("Overall OEE", f"{curr_oee:.1f}%", delta=f"{diff_oee:+.1f}% vs Prev ({prev_oee:.1f}%)")
+    col2.metric("Availability", f"{curr_avail:.1f}%", delta=f"{diff_avail:+.1f}% vs Prev ({prev_avail:.1f}%)")
+    col3.metric("Performance", f"{curr_perf:.1f}%", delta=f"{diff_perf:+.1f}% vs Prev ({prev_perf:.1f}%)")
+    col4.metric("Quality", f"{curr_qual:.1f}%", delta=f"{diff_qual:+.1f}% vs Prev ({prev_qual:.1f}%)")
+    col5.metric("Downtime Hours", f"{curr_dt:.1f} hrs", delta=f"{diff_dt:+.1f} hrs vs Prev", delta_color="inverse")
 
 
 def render_sample_questions(on_click_callback):

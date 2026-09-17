@@ -106,43 +106,6 @@ def render_settings_page():
                 else:
                     st.warning("Please enter question text.")
 
-    # --- Section 2: Target Settings ---
-    with st.expander("🎯 Target Settings", expanded=False):
-        st.markdown("Set global benchmark targets for OEE and core components.")
-        col1, col2 = st.columns(2)
-        with col1:
-            t_oee = st.number_input(
-                "Target OEE (%)",
-                min_value=0.0, max_value=100.0,
-                value=float(st.session_state.settings_targets["oee"]),
-                key="sett_t_oee"
-            )
-            t_avail = st.number_input(
-                "Target Availability (%)",
-                min_value=0.0, max_value=100.0,
-                value=float(st.session_state.settings_targets["availability"]),
-                key="sett_t_avail"
-            )
-        with col2:
-            t_perf = st.number_input(
-                "Target Performance (%)",
-                min_value=0.0, max_value=100.0,
-                value=float(st.session_state.settings_targets["performance"]),
-                key="sett_t_perf"
-            )
-            t_qual = st.number_input(
-                "Target Quality (%)",
-                min_value=0.0, max_value=100.0,
-                value=float(st.session_state.settings_targets["quality"]),
-                key="sett_t_qual"
-            )
-
-        st.session_state.settings_targets = {
-            "oee": t_oee,
-            "availability": t_avail,
-            "performance": t_perf,
-            "quality": t_qual
-        }
 
     # --- Hidden Metric Colors Section (Hidden for now as requested) ---
     HIDE_METRIC_COLORS = True
@@ -298,10 +261,6 @@ def render_settings_page():
         save_app_setting_to_db("ORCHESTRATION_MODEL", st.session_state.settings_orchestration_model)
         save_app_setting_to_db("HISTORY_COUNT", st.session_state.settings_history_count)
 
-        save_app_setting_to_db("OEE_TARGET", st.session_state.settings_targets["oee"])
-        save_app_setting_to_db("AVAILABILITY_TARGET", st.session_state.settings_targets["availability"])
-        save_app_setting_to_db("PERFORMANCE_TARGET", st.session_state.settings_targets["performance"])
-        save_app_setting_to_db("QUALITY_TARGET", st.session_state.settings_targets["quality"])
 
         if st.session_state.settings_custom_logo_bytes is not None:
             save_app_logo_to_db(st.session_state.settings_custom_logo_bytes)

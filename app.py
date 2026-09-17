@@ -21,7 +21,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from config import APP_TITLE, APP_ICON
+from config import APP_TITLE, APP_ICON, DB, ANALYTICS_SCHEMA
 from data.sample_data import calculate_aggregated_oee
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
@@ -100,13 +100,6 @@ if "db_settings_loaded" not in st.session_state:
     st.session_state.settings_orchestration_model = db_sets.get("orchestration_model") or "claude-sonnet-4-5"
     st.session_state.settings_history_count = int(db_sets.get("history_count") or 10)
 
-    st.session_state.settings_targets = {
-        "oee": float(db_sets.get("oee_target") or 85.0),
-        "availability": float(db_sets.get("availability_target") or 90.0),
-        "performance": float(db_sets.get("performance_target") or 95.0),
-        "quality": float(db_sets.get("quality_target") or 99.0)
-    }
-
     if db_res.get("logo_bytes") is not None:
         st.session_state.settings_custom_logo_bytes = db_res["logo_bytes"]
 
@@ -116,14 +109,6 @@ if "db_questions_loaded" not in st.session_state or st.session_state.get("sugges
     db_qs = load_suggested_questions_from_db()
     st.session_state.suggested_questions_list = db_qs
     st.session_state.db_questions_loaded = True
-
-if "settings_targets" not in st.session_state:
-    st.session_state.settings_targets = {
-        "oee": 85.0,
-        "availability": 90.0,
-        "performance": 95.0,
-        "quality": 99.0
-    }
 
 if "settings_colors" not in st.session_state:
     st.session_state.settings_colors = {
@@ -585,10 +570,41 @@ else:
     # Filter Dataset
     df_filtered = analyst_service._apply_filters(df_raw, filters) if not df_raw.empty else df_raw
 
-    # KPI Cards using settings targets
+    # KPI Cards loaded from view VW_OEE_KPI_CARDS
     st.markdown('<div class="section-label">📊 Plant Performance Overview</div>', unsafe_allow_html=True)
-    kpis = calculate_aggregated_oee(df_filtered) if not df_filtered.empty else {"oee": 0.0, "availability": 0.0, "performance": 0.0, "quality": 0.0, "total_downtime_hours": 0.0}
-    render_kpi_cards(kpis, st.session_state.settings_targets)
+
+    def load_kpi_view_data():
+        if snowflake_session is not None:
+            try:
+                view_name = f"{DB}.{ANALYTICS_SCHEMA}.VW_OEE_KPI_CARDS"
+                kpi_df = snowflake_session.sql(f"SELECT * FROM {view_name}").to_pandas()
+                if not kpi_df.empty:
+                    row = kpi_df.iloc[0].to_dict()
+                    return {k.lower(): v for k, v in row.items()}
+            except Exception as e_kpi:
+                logger.warning(f"Unable to query view {DB}.{ANALYTICS_SCHEMA}.VW_OEE_KPI_CARDS: {e_kpi}")
+
+        # Fallback if view query fails
+        calc_kpis = calculate_aggregated_oee(df_filtered) if not df_filtered.empty else {}
+        return {
+            "current_oee": calc_kpis.get("oee", 0.0),
+            "previous_oee": calc_kpis.get("oee", 0.0),
+            "current_availability": calc_kpis.get("availability", 0.0),
+            "previous_availability": calc_kpis.get("availability", 0.0),
+            "current_performance": calc_kpis.get("performance", 0.0),
+            "previous_performance": calc_kpis.get("performance", 0.0),
+            "current_quality": calc_kpis.get("quality", 0.0),
+            "previous_quality": calc_kpis.get("quality", 0.0),
+            "current_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
+            "previous_downtime_hours": calc_kpis.get("total_downtime_hours", 0.0),
+            "current_start_date": "Current Month",
+            "current_end_date": "Today",
+            "previous_start_date": "Prior Month",
+            "previous_end_date": "Prior Month End"
+        }
+
+    kpi_view_data = load_kpi_view_data()
+    render_kpi_cards(kpi_view_data)
 
     st.divider()
 
