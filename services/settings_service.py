@@ -22,11 +22,32 @@ from services.snowflake_connection import get_snowflake_session
 logger = logging.getLogger("settings_service")
 
 
-def _get_current_username() -> str:
-    """Get active username or default string."""
-    if hasattr(st, "session_state") and "current_user" in st.session_state and st.session_state["current_user"]:
-        return str(st.session_state["current_user"])
-    return "APP_USER"
+def _get_current_username() -> Optional[str]:
+    """Get active username from session state or query Snowflake CURRENT_USER()."""
+    if hasattr(st, "session_state") and st.session_state.get("current_user"):
+        return str(st.session_state["current_user"]).strip()
+
+    session = get_snowflake_session()
+    if session is not None:
+        try:
+            df = session.sql("SELECT CURRENT_USER() AS user_name").to_pandas()
+            if df is not None and not df.empty:
+                val = df.iloc[0, 0]
+                if val and str(val).strip() and str(val) != "None":
+                    return str(val).strip()
+        except Exception as e_usr:
+            logger.debug(f"Unable to query CURRENT_USER(): {e_usr}")
+
+    return None
+
+
+def _format_sql_user_arg(user: Optional[str]) -> str:
+    """Return 'username' if available, else 'CURRENT_USER()' for SQL procedure calls."""
+    u_val = user or _get_current_username()
+    if u_val and str(u_val).strip():
+        esc_u = str(u_val).strip().replace("'", "''")
+        return f"'{esc_u}'"
+    return "CURRENT_USER()"
 
 
 def _row_val(row: Any, possible_keys: List[str], positional_idx: Optional[int] = None, default: Any = None) -> Any:
@@ -122,14 +143,13 @@ def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int
     session = get_snowflake_session()
     if session is None:
         return False
-    user_val = user or _get_current_username()
+    user_arg = _format_sql_user_arg(user)
     esc_text = q_text.replace("'", "''")
-    esc_user = user_val.replace("'", "''")
     qid_val = q_id if q_id and q_id > 0 else 'NULL'
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_QUESTION"
 
     try:
-        session.sql(f"CALL {proc_call}({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}({qid_val}, '{esc_text}', {q_order}, {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
@@ -214,14 +234,13 @@ def save_admin_user_to_db(username: str, is_active: bool = True, user: Optional[
     session = get_snowflake_session()
     if session is None:
         return False
-    user_val = user or _get_current_username()
+    user_arg = _format_sql_user_arg(user)
     esc_uname = username.strip().upper().replace("'", "''")
-    esc_user = user_val.replace("'", "''")
     active_str = "TRUE" if is_active else "FALSE"
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_ADMIN_USER"
 
     try:
-        session.sql(f"CALL {proc_call}('{esc_uname}', {active_str}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('{esc_uname}', {active_str}, {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
@@ -233,13 +252,12 @@ def delete_admin_user_from_db(username: str, user: Optional[str] = None) -> bool
     session = get_snowflake_session()
     if session is None:
         return False
-    user_val = user or _get_current_username()
+    user_arg = _format_sql_user_arg(user)
     esc_uname = username.strip().upper().replace("'", "''")
-    esc_user = user_val.replace("'", "''")
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_ADMIN_USER"
 
     try:
-        session.sql(f"CALL {proc_call}('{esc_uname}', '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('{esc_uname}', {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
@@ -251,12 +269,11 @@ def delete_suggested_question_from_db(q_id: int, user: Optional[str] = None) -> 
     session = get_snowflake_session()
     if session is None:
         return False
-    user_val = user or _get_current_username()
-    esc_user = user_val.replace("'", "''")
+    user_arg = _format_sql_user_arg(user)
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_QUESTION"
 
     try:
-        session.sql(f"CALL {proc_call}({q_id}, '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}({q_id}, {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
@@ -327,13 +344,12 @@ def save_app_setting_to_db(key: str, val: Any, user: Optional[str] = None) -> bo
     session = get_snowflake_session()
     if session is None:
         return False
-    user_val = user or _get_current_username()
-    esc_user = user_val.replace("'", "''")
+    user_arg = _format_sql_user_arg(user)
     val_str = str(val).replace("'", "''")
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING"
 
     try:
-        session.sql(f"CALL {proc_call}('{key.upper()}', '{val_str}', '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('{key.upper()}', '{val_str}', {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
@@ -345,13 +361,12 @@ def save_app_logo_to_db(logo_bytes: Optional[bytes], user: Optional[str] = None)
     session = get_snowflake_session()
     if session is None or logo_bytes is None:
         return False
-    user_val = user or _get_current_username()
-    esc_user = user_val.replace("'", "''")
+    user_arg = _format_sql_user_arg(user)
     hex_str = logo_bytes.hex()
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_APP_SETTING_BLOB"
 
     try:
-        session.sql(f"CALL {proc_call}('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), '{esc_user}')").collect()
+        session.sql(f"CALL {proc_call}('COMPANY_LOGO', TO_BINARY('{hex_str}', 'HEX'), {user_arg})").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
