@@ -6,12 +6,12 @@ A enterprise-grade Streamlit application for **Manufacturing OEE (Overall Equipm
 
 ## 🏗️ Application Architecture & Data Flow
 
+The application consists of two independent core workflows: **Conversational Analytics Chat Flow** and **Sidebar Navigation & Admin Access Control Flow**.
+
+### Flow 1: Conversational Analytics Chat Flow
+
 ```text
 User Question / Suggested Chip Click
-               │
-               ▼
-   Sidebar Navigation & Admin Verification
-    (check_is_admin() via SP_TRAKSYS_IS_ADMIN)
                │
                ▼
    Snowflake Cortex Agent REST API
@@ -37,6 +37,23 @@ User Question / Suggested Chip Click
                                                ▼
                               PDF Report Conversation Export
                              (services/pdf_generator.py)
+```
+
+### Flow 2: Sidebar Navigation & Admin Access Control Flow
+
+```text
+Sidebar Navigation Radio Selection
+               │
+               ▼
+   Admin Privilege Verification
+    (check_is_admin() via SP_TRAKSYS_IS_ADMIN)
+               │
+               ├─────────────────────────────────────────┐
+               │                                         │
+               ▼                                         ▼
+   [If Admin = True]                       [If Admin = False]
+   Full Settings Page Access                Settings Navigation Option
+   (ui/settings_page.py)                    Hidden / Restricted
 ```
 
 ---
@@ -97,12 +114,7 @@ User Question / Suggested Chip Click
 ---
 
 ### 2. `config.py` (Application Configuration Constants)
-- **Role**: Centralizes database parameters, schema names, chart type lists, and supported metric definitions.
-- **Key Variables**:
-  - `APP_TITLE`, `APP_ICON`: UI branding defaults.
-  - `DB`, `APP_SCHEMA`, `TRACKSYS_SCHEMA`, `ANALYTICS_SCHEMA`: Environmental schema names (`JBEDW_DEV`, `APPS`, `STAGE_TRAKSYS`, `ANALYTICS_OPERATIONS`) directly exported for stored procedure call formatting `{DB}.{APP_SCHEMA}.SP_TRAKSYS_*`.
-  - `SUPPORTED_CHART_TYPES`: Allowed chart types (`line`, `bar`, `grouped_bar`, `stacked_bar`, `pie`, `donut`, `gauge`, `scatter`, `heatmap`, `table`).
-  - `METRICS`: Dictionary mapping OEE metric keys (`oee`, `availability`, `performance`, `quality`, `downtime_hours`) to display labels.
+- **Role**: Centralizes database parameters and schema names (`APP_SCHEMA`, `DB`, `TRACKSYS_SCHEMA`, `ANALYTICS_SCHEMA`).
 
 ---
 
