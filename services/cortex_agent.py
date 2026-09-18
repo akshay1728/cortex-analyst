@@ -280,10 +280,31 @@ def call_agent(messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None
         elif isinstance(content, list):
             formatted_api_messages.append({"role": role, "content": content})
 
-    semantic_view = st.session_state.get("settings_semantic_view") or os.environ.get("SEMANTIC_VIEW", "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS")
-    warehouse_name = st.session_state.get("settings_warehouse_name") or "WH_APPS"
-    analyst_tool_name = st.session_state.get("settings_analyst_tool_name") or "traksys_analyst"
-    orchestration_model = st.session_state.get("settings_orchestration_model") or "claude-sonnet-4-5"
+    semantic_view = st.session_state.get("settings_semantic_view")
+    warehouse_name = st.session_state.get("settings_warehouse_name")
+    analyst_tool_name = st.session_state.get("settings_analyst_tool_name")
+    orchestration_model = st.session_state.get("settings_orchestration_model")
+
+    missing_params = []
+    if not semantic_view or not str(semantic_view).strip():
+        missing_params.append("Semantic View Name (semantic_view)")
+    if not warehouse_name or not str(warehouse_name).strip():
+        missing_params.append("Warehouse Name (warehouse_name)")
+    if not analyst_tool_name or not str(analyst_tool_name).strip():
+        missing_params.append("Analyst Tool Name (analyst_tool_name)")
+    if not orchestration_model or not str(orchestration_model).strip():
+        missing_params.append("Orchestration Model (orchestration_model)")
+
+    if missing_params:
+        err_msg = f"❌ **Cortex Agent Configuration Error**: Missing required settings from DB/Session State: {', '.join(missing_params)}. Please update these settings on the Settings page."
+        logger.error(err_msg)
+        yield {
+            "event": "response.text.delta",
+            "data": {
+                "text": err_msg
+            }
+        }
+        return
 
     payload = {
         "models": {"orchestration": orchestration_model},

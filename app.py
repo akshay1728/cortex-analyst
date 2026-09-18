@@ -93,7 +93,7 @@ if "db_settings_loaded" not in st.session_state:
     st.session_state.settings_header_title = db_sets.get("header_title") or "OEE AI Assistant"
     st.session_state.settings_header_subtitle = db_sets.get("header_subtitle") or "Ask natural language questions about plant performance, equipment availability, line productivity, and downtime root causes — powered by Cortex Analyst."
     st.session_state.settings_pdf_filename_template = db_sets.get("pdf_filename_template") or "OEE_Conversation_Report_{YYYYMMDD}.pdf"
-    st.session_state.settings_semantic_view = db_sets.get("semantic_view") or "JBEDW_DEV.ANALYTICS_OPERATIONS.SVW_TRAKSYS"
+    st.session_state.settings_semantic_view = db_sets.get("semantic_view") or f"{DB}.{ANALYTICS_SCHEMA}.SVW_TRAKSYS"
     st.session_state.settings_warehouse_name = db_sets.get("warehouse_name") or "WH_APPS"
     st.session_state.settings_analyst_tool_name = db_sets.get("analyst_tool_name") or "traksys_analyst"
     st.session_state.settings_orchestration_model = db_sets.get("orchestration_model") or "claude-sonnet-4-5"
