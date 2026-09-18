@@ -84,7 +84,7 @@ st.set_page_config(
 # --------------------------------------------------------------------------
 # Initialize Session State Settings from DB
 # --------------------------------------------------------------------------
-from services.settings_service import load_app_settings_from_db, load_suggested_questions_from_db
+from services.settings_service import load_app_settings_from_db, load_suggested_questions_from_db, check_is_admin
 
 if "db_settings_loaded" not in st.session_state:
     db_res = load_app_settings_from_db()
@@ -538,12 +538,16 @@ if logo_b64_str:
     )
 
 # --------------------------------------------------------------------------
-# Navigation Sidebar
+# Navigation Sidebar & Admin Privilege Verification
 # --------------------------------------------------------------------------
+if "is_user_admin" not in st.session_state:
+    st.session_state.is_user_admin = check_is_admin()
+
 NAV_ITEMS = {
     "💬  Chat assistant": "chat",
-    "⚙️  Settings": "settings",
 }
+if st.session_state.is_user_admin:
+    NAV_ITEMS["⚙️  Settings"] = "settings"
 
 st.sidebar.markdown('<div class="sidebar-group">Go to</div>', unsafe_allow_html=True)
 nav_label = st.sidebar.radio(

@@ -58,3 +58,18 @@ def test_style_dataframe_metrics():
 
     styled = style_dataframe_metrics(df, colors_config)
     assert styled is not None
+
+
+def test_admin_service_functions(monkeypatch):
+    from services.settings_service import check_is_admin, load_admin_users_from_db, save_admin_user_to_db, delete_admin_user_from_db
+
+    # Test check_is_admin default when session is None
+    assert check_is_admin("TEST_USER") is True
+
+    # Test load_admin_users_from_db when session is None
+    admins = load_admin_users_from_db()
+    assert isinstance(admins, list)
+
+    # Test save/delete when session is None
+    assert save_admin_user_to_db("NEW_ADMIN", True) is False
+    assert delete_admin_user_from_db("NEW_ADMIN") is False

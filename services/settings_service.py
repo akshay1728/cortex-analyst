@@ -13,6 +13,7 @@ import logging
 import base64
 import json
 from typing import List, Dict, Any, Optional
+import numpy as np
 import pandas as pd
 import streamlit as st
 from config import DB, APP_SCHEMA
@@ -129,6 +130,116 @@ def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int
 
     try:
         session.sql(f"CALL {proc_call}({qid_val}, '{esc_text}', {q_order}, '{esc_user}')").collect()
+        return True
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
+        return False
+
+
+def check_is_admin(username: Optional[str] = None) -> bool:
+    """Check if given username (or current user) has admin privileges via {DB}.{APP_SCHEMA}.SP_TRAKSYS_IS_ADMIN()."""
+    session = get_snowflake_session()
+    if session is None:
+        logger.info("Snowflake session unavailable; returning default True for admin check.")
+        return True
+
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_IS_ADMIN"
+
+    if username and username.strip():
+        esc_user = username.strip().replace("'", "''")
+        arg_str = f"'{esc_user}'"
+    elif hasattr(st, "session_state") and st.session_state.get("current_user"):
+        esc_user = str(st.session_state["current_user"]).strip().replace("'", "''")
+        arg_str = f"'{esc_user}'"
+    else:
+        # Pass NULL so procedure COALESCE(:P_USERNAME, CURRENT_USER()) resolves to active Snowflake user
+        arg_str = "NULL"
+
+    try:
+        df = session.sql(f"CALL {proc_call}({arg_str})").to_pandas()
+        if df is not None and not df.empty:
+            val = df.iloc[0, 0]
+            if isinstance(val, (bool, np.bool_)):
+                return bool(val)
+            if str(val).strip().lower() in ("true", "1", "t"):
+                return True
+            return False
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
+
+    return True
+
+
+def load_admin_users_from_db() -> List[Dict[str, Any]]:
+    """Fetch admin users via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_ADMIN_USERS()."""
+    session = get_snowflake_session()
+    if session is None:
+        logger.info("Snowflake session unavailable; returning empty admin list.")
+        return []
+
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_ADMIN_USERS"
+    try:
+        df = session.sql(f"CALL {proc_call}()").to_pandas()
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}(): {e_proc}")
+        return []
+
+    admins = []
+    if df is not None and not df.empty:
+        for idx_r, row in df.iterrows():
+            uname = _row_val(row, ["USERNAME", "username", "USER"], positional_idx=0, default="")
+            active_val = _row_val(row, ["IS_ACTIVE", "is_active", "ACTIVE"], positional_idx=1, default=True)
+            c_by = _row_val(row, ["CREATED_BY", "created_by"], positional_idx=2, default="UNKNOWN")
+            u_by = _row_val(row, ["UPDATED_BY", "updated_by"], positional_idx=3, default="UNKNOWN")
+
+            if uname and str(uname).strip():
+                is_act = True
+                if isinstance(active_val, bool):
+                    is_act = active_val
+                elif str(active_val).strip().lower() in ("false", "0", "f", "none"):
+                    is_act = False
+
+                admins.append({
+                    "username": str(uname).strip().upper(),
+                    "is_active": is_act,
+                    "created_by": str(c_by),
+                    "updated_by": str(u_by)
+                })
+
+    return admins
+
+
+def save_admin_user_to_db(username: str, is_active: bool = True, user: Optional[str] = None) -> bool:
+    """Add or modify an admin user via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_ADMIN_USER()."""
+    session = get_snowflake_session()
+    if session is None:
+        return False
+    user_val = user or _get_current_username()
+    esc_uname = username.strip().upper().replace("'", "''")
+    esc_user = user_val.replace("'", "''")
+    active_str = "TRUE" if is_active else "FALSE"
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_SAVE_ADMIN_USER"
+
+    try:
+        session.sql(f"CALL {proc_call}('{esc_uname}', {active_str}, '{esc_user}')").collect()
+        return True
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
+        return False
+
+
+def delete_admin_user_from_db(username: str, user: Optional[str] = None) -> bool:
+    """Delete an admin user via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_ADMIN_USER()."""
+    session = get_snowflake_session()
+    if session is None:
+        return False
+    user_val = user or _get_current_username()
+    esc_uname = username.strip().upper().replace("'", "''")
+    esc_user = user_val.replace("'", "''")
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_DELETE_ADMIN_USER"
+
+    try:
+        session.sql(f"CALL {proc_call}('{esc_uname}', '{esc_user}')").collect()
         return True
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")

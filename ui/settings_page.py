@@ -9,7 +9,10 @@ from services.settings_service import (
     delete_suggested_question_from_db,
     load_app_settings_from_db,
     save_app_setting_to_db,
-    save_app_logo_to_db
+    save_app_logo_to_db,
+    load_admin_users_from_db,
+    save_admin_user_to_db,
+    delete_admin_user_from_db
 )
 
 
@@ -67,11 +70,12 @@ def render_settings_page():
 
         st.session_state.db_settings_loaded = True
 
-    tab_questions, tab_logo, tab_connection, tab_header = st.tabs([
+    tab_questions, tab_logo, tab_connection, tab_header, tab_admins = st.tabs([
         "💡 Suggested Questions",
         "🖼️ Logo",
         "⚙️ Connection & Agent",
         "🏷️ Header & Banner",
+        "👥 Admin Users",
     ])
 
     # --- Suggested Questions Management (DB Backed) ---
@@ -281,6 +285,75 @@ def render_settings_page():
 
         st.session_state.settings_header_title = h_title
         st.session_state.settings_header_subtitle = h_subtitle
+
+    # --- Admin Users Management ---
+    with tab_admins:
+        st.caption("Manage application administrators. Only active admin users can access the Settings page.")
+
+        top_a1, top_a2 = st.columns([7, 3])
+        with top_a2:
+            if st.button("🔄 Reload Admins from DB", key="reload_admins_btn", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    if k.startswith("admin_active_") or k.startswith("admin_uname_"):
+                        del st.session_state[k]
+                st.session_state.admin_users_list = load_admin_users_from_db()
+                _flash("success", "Refreshed admin users from database.")
+                st.rerun()
+
+        if "admin_users_list" not in st.session_state or st.session_state.get("admin_users_list") is None:
+            st.session_state.admin_users_list = load_admin_users_from_db()
+
+        admin_list = st.session_state.get("admin_users_list", [])
+
+        if admin_list:
+            st.markdown("##### Existing Admin Users")
+            for a_idx, a_obj in enumerate(admin_list):
+                ca1, ca2, ca3 = st.columns([5, 3, 2])
+                with ca1:
+                    st.text_input(
+                        f"Username #{a_idx+1}",
+                        value=a_obj["username"],
+                        disabled=True,
+                        key=f"admin_uname_{a_obj['username']}_{a_idx}"
+                    )
+                with ca2:
+                    is_act_val = st.toggle(
+                        "Active Admin",
+                        value=bool(a_obj["is_active"]),
+                        key=f"admin_active_{a_obj['username']}_{a_idx}"
+                    )
+                    if is_act_val != a_obj["is_active"]:
+                        save_admin_user_to_db(a_obj["username"], is_act_val)
+                        admin_list[a_idx]["is_active"] = is_act_val
+                        _flash("success", f"Updated status for user '{a_obj['username']}'.")
+                        st.rerun()
+                with ca3:
+                    _spacer()
+                    if st.button("❌ Remove", key=f"admin_del_{a_obj['username']}_{a_idx}"):
+                        delete_admin_user_from_db(a_obj["username"])
+                        st.session_state.admin_users_list.pop(a_idx)
+                        _flash("success", f"Admin user '{a_obj['username']}' removed.")
+                        st.rerun()
+        else:
+            st.info("No admin users found in database.")
+
+        st.divider()
+        st.markdown("##### ➕ Add New Admin User")
+        new_adm1, new_adm2, new_adm3 = st.columns([5, 3, 2])
+        with new_adm1:
+            new_uname = st.text_input("Snowflake Username", key="new_admin_username_in")
+        with new_adm2:
+            new_u_active = st.toggle("Is Active Admin", value=True, key="new_admin_active_in")
+        with new_adm3:
+            _spacer()
+            if st.button("➕ Add Admin", key="add_admin_btn", use_container_width=True):
+                if new_uname.strip():
+                    save_admin_user_to_db(new_uname.strip(), new_u_active)
+                    st.session_state.admin_users_list = load_admin_users_from_db()
+                    _flash("success", f"Admin user '{new_uname.strip().upper()}' added successfully!")
+                    st.rerun()
+                else:
+                    st.warning("Please enter a valid username.")
 
     st.write("")
     if st.button("💾 Save All Settings to Database", type="primary"):

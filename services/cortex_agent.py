@@ -395,10 +395,6 @@ def collect_response(
             update_status("⚡ Executing query on Snowflake warehouse...")
         elif tool_name == "data_to_chart" or "chart" in str(tool_name).lower() or evt_type == "response.chart":
             update_status("📊 Rendering chart visualization...")
-        evt_type = str(evt_wrapper.get("event", ""))
-        data = evt_wrapper.get("data", {})
-        if not isinstance(data, dict):
-            continue
 
         # Ignore thinking, reasoning, status, or system planning events
         if "thinking" in evt_type.lower() or "reasoning" in evt_type.lower() or data.get("type") in ("thinking", "response.thinking"):
