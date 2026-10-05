@@ -28,8 +28,11 @@ from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_oee_dashboard, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
 from services.settings_service import (
+    load_app_settings_from_db,
+    load_suggested_questions_from_db,
+    check_is_admin,
     load_dashboard_types_from_db,
-    load_production_lines_from_db
+    load_production_lines_from_db,
 )
 
 
@@ -87,8 +90,6 @@ st.set_page_config(
 # --------------------------------------------------------------------------
 # Initialize Session State Settings from DB
 # --------------------------------------------------------------------------
-from services.settings_service import load_app_settings_from_db, load_suggested_questions_from_db, check_is_admin
-
 if "db_settings_loaded" not in st.session_state:
     db_res = load_app_settings_from_db()
     db_sets = db_res.get("settings", {})

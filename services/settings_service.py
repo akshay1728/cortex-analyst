@@ -185,7 +185,11 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
     if session is None:
         return ["All Lines", "Line 1", "Line 2", "Line 3"]
 
-    dash_arg = f"'{dashboard_name.replace('\'', '\'\'')}'" if dashboard_name else "NULL"
+    if dashboard_name:
+        esc_dash = dashboard_name.replace("'", "''")
+        dash_arg = f"'{esc_dash}'"
+    else:
+        dash_arg = "NULL"
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES"
 
     try:
@@ -231,10 +235,15 @@ def load_dashboard_metrics_from_db(
     if session is None:
         return defaults
 
-    dash_arg = f"'{dashboard_name.replace('\'', '\'\'')}'"
+    esc_dash = dashboard_name.replace("'", "''")
+    dash_arg = f"'{esc_dash}'"
     start_arg = f"'{start_date}'" if start_date else "NULL"
     end_arg = f"'{end_date}'" if end_date else "NULL"
-    line_arg = f"'{line_name.replace('\'', '\'\'')}'" if line_name and line_name != "All Lines" else "NULL"
+    if line_name and line_name != "All Lines":
+        esc_line = line_name.replace("'", "''")
+        line_arg = f"'{esc_line}'"
+    else:
+        line_arg = "NULL"
 
     proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS"
 
