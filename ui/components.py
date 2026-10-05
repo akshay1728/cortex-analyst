@@ -20,75 +20,298 @@ SLATE_COLOR = "#3d4b53"
 GRAY_LIGHT = "#e8ecef"
 
 
+OLIVE_COLOR = "#b2961d"
+RED_COLOR = "#cb0d19"
+
+
 def render_oee_dashboard(
     dashboard_name: str,
     start_date: str,
     end_date: str,
     line_name: str
 ):
-    """Render the OEE Dashboard section sitting above the chat interface.
-
-    Contains 3 vertical column sections matching image.png:
-    - Left Column:
-        1. Total Pounds (Horizontal Bar Chart for Shifts + Running Sum)
-        2. Total Pounds (Curved Area Chart over time)
-    - Middle Column:
-        1. Total Run Time & Lost Time KPI cards (633 Mins vs 343 Mins)
-        2. Total Run Time (100% Stacked Bar Chart comparing Run vs Lost time per time interval)
-    - Right Column:
-        1. OEE (Horizontal Bar Chart for Shifts)
-        2. OEE Gauge Chart (Half-donut gauge displaying Overall OEE)
-    """
+    """Render the OEE Dashboard section sitting above the chat interface."""
     data = load_dashboard_metrics_from_db(dashboard_name, start_date, end_date, line_name)
 
-    # CSS for dashboard container styling
+    # If Moghul dashboard selected, render Moghul specific layout matching screenshot
+    if dashboard_name and dashboard_name.lower() == "moghul":
+        _render_moghul_dashboard(data, line_name)
+        return
+
+    # Default / Molded Dashboard Layout
+    _render_molded_dashboard(data)
+
+
+def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
+    """Render Moghul dashboard matching image.png specifications."""
+    # Top Header Banner matching Moghul image layout
+    display_line = line_name if line_name and line_name != "All Lines" else "NID-C"
+    run_time = int(data.get("total_run_time_mins", 993))
+    lost_time = int(data.get("total_lost_time_mins", 444))
+    trucks = int(data.get("total_shakeout_trucks", 174))
+
     st.markdown(
-        """
+        f"""
         <style>
-        .dash-card {
-            background-color: #ffffff;
+        .moghul-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+            padding: 12px 24px;
             border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
             border: 1px solid #eef0f4;
             margin-bottom: 16px;
-        }
-        .kpi-header-box {
+        }}
+        .moghul-title-box {{
             display: flex;
-            justify-content: space-around;
-            align-items: center;
-            background-color: #ffffff;
-            border-radius: 10px;
-            padding: 10px 16px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-            border: 1px solid #eef0f4;
-            margin-bottom: 12px;
-        }
-        .kpi-stat-item {
-            text-align: center;
-        }
-        .kpi-stat-val {
-            font-size: 1.8rem;
-            font-weight: 700;
+            align-items: baseline;
+            gap: 16px;
+        }}
+        .moghul-title {{
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: {OLIVE_COLOR};
+            line-height: 1;
+        }}
+        .moghul-subtitle {{
+            font-size: 1.05rem;
             color: #2b303a;
-            line-height: 1.1;
-        }
-        .kpi-stat-lbl {
-            font-size: 0.8rem;
-            color: #6c757d;
             font-weight: 500;
-            margin-top: 2px;
-        }
-        .kpi-divider {
-            width: 1px;
-            height: 36px;
-            background-color: #dce1e7;
-        }
+        }}
+        .moghul-stats-box {{
+            display: flex;
+            gap: 40px;
+        }}
+        .moghul-stat-item {{
+            text-align: center;
+        }}
+        .moghul-stat-val {{
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #1a1a1a;
+            line-height: 1;
+        }}
+        .moghul-stat-lbl {{
+            font-size: 0.82rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }}
+        .shift-box-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }}
+        .shift-lbl {{
+            font-size: 0.92rem;
+            color: #495057;
+        }}
+        .shift-val-badge {{
+            background-color: {OLIVE_COLOR};
+            color: white;
+            font-weight: 700;
+            font-size: 1.25rem;
+            padding: 8px 24px;
+            border-radius: 4px;
+            min-width: 120px;
+            text-align: center;
+        }}
+        .shift-val-badge-total {{
+            background-color: {OLIVE_COLOR};
+            color: white;
+            font-weight: 700;
+            font-size: 1.35rem;
+            padding: 10px;
+            border-radius: 4px;
+            width: 100%;
+            text-align: center;
+            margin-top: 8px;
+        }}
         </style>
+        <div class="moghul-header">
+            <div class="moghul-title-box">
+                <div class="moghul-title">{html.escape(display_line)}</div>
+                <div class="moghul-subtitle">Tuesday, July 07, 2026</div>
+            </div>
+            <div class="moghul-stats-box">
+                <div class="moghul-stat-item">
+                    <div class="moghul-stat-val">{run_time:,}</div>
+                    <div class="moghul-stat-lbl">Total run time</div>
+                </div>
+                <div class="moghul-stat-item">
+                    <div class="moghul-stat-val">{lost_time:,}</div>
+                    <div class="moghul-stat-lbl">Total lost time</div>
+                </div>
+                <div class="moghul-stat-item">
+                    <div class="moghul-stat-val">{trucks:,}</div>
+                    <div class="moghul-stat-lbl">Total shakeout trucks</div>
+                </div>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True
     )
 
+    col1, col2, col3 = st.columns([1, 1.3, 1])
+
+    # Left Column: Boards Cast & Total OEE Gauge
+    with col1:
+        with st.container(border=True):
+            st.markdown('<div style="text-align:center; font-weight:600; font-size:1.05rem; color:#2b303a; margin-bottom:12px;">Boards Cast</div>', unsafe_allow_html=True)
+            b1 = int(data.get("boards_cast_shift1", 7020))
+            b2 = int(data.get("boards_cast_shift2", 7218))
+            b3 = int(data.get("boards_cast_shift3", 7225))
+            b_total = int(data.get("total_boards", 21463))
+
+            st.markdown(
+                f"""
+                <div class="shift-box-row">
+                    <span class="shift-lbl">1st shift</span>
+                    <span class="shift-val-badge">{b1:,}</span>
+                </div>
+                <div class="shift-box-row">
+                    <span class="shift-lbl">2nd shift</span>
+                    <span class="shift-val-badge">{b2:,}</span>
+                </div>
+                <div class="shift-box-row">
+                    <span class="shift-lbl">3rd shift</span>
+                    <span class="shift-val-badge">{b3:,}</span>
+                </div>
+                <div class="shift-box-row" style="margin-top:14px;">
+                    <span class="shift-lbl">Total Boards</span>
+                </div>
+                <div class="shift-val-badge-total">{b_total:,}</div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with st.container(border=True):
+            oee_val = float(data.get("overall_oee", 54.00))
+            remaining_oee = max(0.0, 100.0 - oee_val)
+
+            fig_gauge = go.Figure(data=[
+                go.Pie(
+                    values=[oee_val, remaining_oee, 100.0],
+                    labels=["OEE", "Remaining", "Bottom"],
+                    marker=dict(colors=[OLIVE_COLOR, "#f0f0f8", "rgba(0,0,0,0)"]),
+                    hole=0.72,
+                    sort=False,
+                    direction="clockwise",
+                    rotation=270,
+                    showlegend=False,
+                    hoverinfo="label+value",
+                    textinfo="none"
+                )
+            ])
+            fig_gauge.add_annotation(
+                text=f"<b style='font-size:38px;color:#2b303a;'>{oee_val:.2f}</b>",
+                x=0.5, y=0.22,
+                showarrow=False,
+                xref="paper", yref="paper"
+            )
+            fig_gauge.add_annotation(
+                text="0.00",
+                x=0.18, y=0.08,
+                showarrow=False,
+                font=dict(size=11, color="#6c757d"),
+                xref="paper", yref="paper"
+            )
+            fig_gauge.add_annotation(
+                text="100.00",
+                x=0.82, y=0.08,
+                showarrow=False,
+                font=dict(size=11, color="#6c757d"),
+                xref="paper", yref="paper"
+            )
+            fig_gauge.update_layout(
+                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a")),
+                margin=dict(l=10, r=10, t=35, b=10),
+                height=180,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_gauge, use_container_width=True, key="fig_moghul_gauge")
+
+    # Middle Column: 100% Stacked bar chart for Total shift run time and Total lost time
+    with col2:
+        with st.container(border=True):
+            times = ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"]
+            run_pct = [59, 0, 0, 0, 69]
+            lost_pct = [41, 0, 0, 0, 31]
+
+            fig_stacked = go.Figure()
+            fig_stacked.add_trace(go.Bar(
+                name="Total shift run time",
+                x=times,
+                y=run_pct,
+                marker_color=OLIVE_COLOR,
+                hovertemplate="<b>%{x}</b><br>Run Time: %{y}%<extra></extra>"
+            ))
+            fig_stacked.add_trace(go.Bar(
+                name="Total lost time",
+                x=times,
+                y=lost_pct,
+                marker_color=RED_COLOR,
+                hovertemplate="<b>%{x}</b><br>Lost Time: %{y}%<extra></extra>"
+            ))
+
+            fig_stacked.update_layout(
+                barmode="stack",
+                title=dict(text="Total shift run time and Total lost time", x=0.5, font=dict(size=15, color="#2b303a")),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=11, color="#495057")
+                ),
+                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor="#f0f2f5",
+                    range=[0, 100],
+                    ticksuffix="%",
+                    tickfont=dict(size=10, color="#6c757d")
+                ),
+                margin=dict(l=10, r=10, t=50, b=20),
+                height=420,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_stacked, use_container_width=True, key="fig_moghul_stacked")
+
+    # Right Column: Total Shakeout Trucks
+    with col3:
+        with st.container(border=True):
+            df_trucks = pd.DataFrame({
+                "day": ["6", "7"],
+                "trucks": [144, 174]
+            })
+
+            fig_trucks = go.Figure()
+            fig_trucks.add_trace(go.Bar(
+                x=df_trucks["day"],
+                y=df_trucks["trucks"],
+                marker_color=OLIVE_COLOR,
+                width=0.45,
+                hovertemplate="Day %{x}<br>Trucks: %{y}<extra></extra>"
+            ))
+            fig_trucks.update_layout(
+                title=dict(text="Total shakeout trucks", x=0.5, font=dict(size=15, color="#2b303a")),
+                xaxis=dict(title="Day<br>July / Qtr 3 / 2026", showgrid=False, tickfont=dict(size=11, color="#2b303a")),
+                yaxis=dict(title="Total trucks", showgrid=True, gridcolor="#f0f2f5", tickfont=dict(size=10, color="#6c757d")),
+                margin=dict(l=10, r=10, t=40, b=30),
+                height=420,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_trucks, use_container_width=True, key="fig_moghul_trucks")
+
+
+def _render_molded_dashboard(data: Dict[str, Any]):
+    """Render Molded dashboard layout."""
     col1, col2, col3 = st.columns([1, 1.1, 1])
 
     # --------------------------------------------------------------------------

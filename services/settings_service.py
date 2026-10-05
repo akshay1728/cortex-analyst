@@ -216,21 +216,35 @@ def load_dashboard_metrics_from_db(
     """Fetch dashboard metrics strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS()."""
     session = get_snowflake_session()
 
-    # Defaults matching image.png exactly
-    defaults = {
-        "dashboard_name": dashboard_name,
-        "line_name": line_name or "All Lines",
-        "total_pounds_shift1": 15444,
-        "total_pounds_shift2": 9461,
-        "total_pounds_shift3": 0,
-        "total_pounds_running_sum": 24905,
-        "total_run_time_mins": 633,
-        "total_lost_time_mins": 343,
-        "oee_shift1": 60,
-        "oee_shift2": 36,
-        "oee_shift3": 0,
-        "overall_oee": 47
-    }
+    # Defaults depending on dashboard name
+    if dashboard_name and dashboard_name.lower() == "moghul":
+        defaults = {
+            "dashboard_name": "Moghul",
+            "line_name": line_name or "NID-C",
+            "total_run_time_mins": 993,
+            "total_lost_time_mins": 444,
+            "total_shakeout_trucks": 174,
+            "boards_cast_shift1": 7020,
+            "boards_cast_shift2": 7218,
+            "boards_cast_shift3": 7225,
+            "total_boards": 21463,
+            "overall_oee": 54.00,
+        }
+    else:
+        defaults = {
+            "dashboard_name": dashboard_name,
+            "line_name": line_name or "All Lines",
+            "total_pounds_shift1": 15444,
+            "total_pounds_shift2": 9461,
+            "total_pounds_shift3": 0,
+            "total_pounds_running_sum": 24905,
+            "total_run_time_mins": 633,
+            "total_lost_time_mins": 343,
+            "oee_shift1": 60,
+            "oee_shift2": 36,
+            "oee_shift3": 0,
+            "overall_oee": 47
+        }
 
     if session is None:
         return defaults
