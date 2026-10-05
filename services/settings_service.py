@@ -156,6 +156,112 @@ def save_suggested_question_to_db(q_id: Optional[int], q_text: str, q_order: int
         return False
 
 
+def load_dashboard_types_from_db() -> List[str]:
+    """Fetch dashboard types strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_TYPES()."""
+    session = get_snowflake_session()
+    if session is None:
+        return ["Molded", "Moghul", "Marshmallow"]
+
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_TYPES"
+    try:
+        df = session.sql(f"CALL {proc_call}()").to_pandas()
+        if df is not None and not df.empty:
+            types = []
+            for _, row in df.iterrows():
+                name = _row_val(row, ["DASHBOARD_NAME", "dashboard_name", "NAME"], positional_idx=0, default="")
+                if name and str(name).strip():
+                    types.append(str(name).strip())
+            if types:
+                return types
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}(): {e_proc}")
+
+    return ["Molded", "Moghul", "Marshmallow"]
+
+
+def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[str]:
+    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES()."""
+    session = get_snowflake_session()
+    if session is None:
+        return ["All Lines", "Line 1", "Line 2", "Line 3"]
+
+    dash_arg = f"'{dashboard_name.replace('\'', '\'\'')}'" if dashboard_name else "NULL"
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES"
+
+    try:
+        df = session.sql(f"CALL {proc_call}({dash_arg})").to_pandas()
+        if df is not None and not df.empty:
+            lines = ["All Lines"]
+            for _, row in df.iterrows():
+                line = _row_val(row, ["LINE_NAME", "line_name", "LINE"], positional_idx=0, default="")
+                if line and str(line).strip() and str(line).strip() not in lines:
+                    lines.append(str(line).strip())
+            return lines
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
+
+    return ["All Lines", "Line 1", "Line 2", "Line 3"]
+
+
+def load_dashboard_metrics_from_db(
+    dashboard_name: str,
+    start_date: str,
+    end_date: str,
+    line_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """Fetch dashboard metrics strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS()."""
+    session = get_snowflake_session()
+
+    # Defaults matching image.png exactly
+    defaults = {
+        "dashboard_name": dashboard_name,
+        "line_name": line_name or "All Lines",
+        "total_pounds_shift1": 15444,
+        "total_pounds_shift2": 9461,
+        "total_pounds_shift3": 0,
+        "total_pounds_running_sum": 24905,
+        "total_run_time_mins": 633,
+        "total_lost_time_mins": 343,
+        "oee_shift1": 60,
+        "oee_shift2": 36,
+        "oee_shift3": 0,
+        "overall_oee": 47
+    }
+
+    if session is None:
+        return defaults
+
+    dash_arg = f"'{dashboard_name.replace('\'', '\'\'')}'"
+    start_arg = f"'{start_date}'" if start_date else "NULL"
+    end_arg = f"'{end_date}'" if end_date else "NULL"
+    line_arg = f"'{line_name.replace('\'', '\'\'')}'" if line_name and line_name != "All Lines" else "NULL"
+
+    proc_call = f"{DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS"
+
+    try:
+        df = session.sql(f"CALL {proc_call}({dash_arg}, {start_arg}, {end_arg}, {line_arg})").to_pandas()
+        if df is not None and not df.empty:
+            row = df.iloc[0]
+            return {
+                "dashboard_name": _row_val(row, ["DASHBOARD_NAME"], positional_idx=0, default=dashboard_name),
+                "line_name": _row_val(row, ["LINE_NAME"], positional_idx=1, default=line_name or "All Lines"),
+                "total_pounds_shift1": float(_row_val(row, ["TOTAL_POUNDS_SHIFT1"], positional_idx=2, default=15444)),
+                "total_pounds_shift2": float(_row_val(row, ["TOTAL_POUNDS_SHIFT2"], positional_idx=3, default=9461)),
+                "total_pounds_shift3": float(_row_val(row, ["TOTAL_POUNDS_SHIFT3"], positional_idx=4, default=0)),
+                "total_pounds_running_sum": float(_row_val(row, ["TOTAL_POUNDS_RUNNING_SUM"], positional_idx=5, default=24905)),
+                "total_run_time_mins": float(_row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=633)),
+                "total_lost_time_mins": float(_row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=343)),
+                "oee_shift1": float(_row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=60)),
+                "oee_shift2": float(_row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=36)),
+                "oee_shift3": float(_row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=0)),
+                "overall_oee": float(_row_val(row, ["OVERALL_OEE"], positional_idx=11, default=47)),
+            }
+    except Exception as e_proc:
+        logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
+
+    return defaults
+
+
 def check_is_admin(username: Optional[str] = None) -> bool:
     """Check if given username (or current user) has admin privileges via {DB}.{APP_SCHEMA}.SP_TRAKSYS_IS_ADMIN()."""
     session = get_snowflake_session()

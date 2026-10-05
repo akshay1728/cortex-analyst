@@ -25,8 +25,12 @@ from config import APP_TITLE, APP_ICON, DB, ANALYTICS_SCHEMA
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
-from ui.components import render_kpi_cards, render_sample_questions, style_dataframe_metrics
+from ui.components import render_oee_dashboard, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
+from services.settings_service import (
+    load_dashboard_types_from_db,
+    load_production_lines_from_db
+)
 
 
 logging.basicConfig(level=logging.INFO)
@@ -609,40 +613,63 @@ if nav_page == "settings":
     render_settings_page()
 
 else:
-    # KPI Cards loaded from view VW_OEE_KPI_CARDS
-    st.markdown('<div class="section-label">📊 Performance Overview</div>', unsafe_allow_html=True)
+    # Dashboard Section sitting above the chat interface
+    st.markdown('<div class="section-label">📊 Manufacturing Dashboard</div>', unsafe_allow_html=True)
 
-    def load_kpi_view_data():
-        if snowflake_session is not None:
-            try:
-                view_name = f"{DB}.{ANALYTICS_SCHEMA}.VW_OEE_KPI_CARDS"
-                kpi_df = snowflake_session.sql(f"SELECT * FROM {view_name}").to_pandas()
-                if not kpi_df.empty:
-                    row = kpi_df.iloc[0].to_dict()
-                    return {k.lower(): v for k, v in row.items()}
-            except Exception as e_kpi:
-                logger.warning(f"Unable to query view {DB}.{ANALYTICS_SCHEMA}.VW_OEE_KPI_CARDS: {e_kpi}")
+    # 1. Fetch Dashboard Types from Stored Procedure
+    dashboard_options = load_dashboard_types_from_db()
 
-        # Fallback if view query fails
-        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        yesterday_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        return {
-            "current_oee": 0.0,
-            "previous_oee": 0.0,
-            "current_availability": 0.0,
-            "previous_availability": 0.0,
-            "current_performance": 0.0,
-            "previous_performance": 0.0,
-            "current_quality": 0.0,
-            "previous_quality": 0.0,
-            "current_downtime_hours": 0.0,
-            "previous_downtime_hours": 0.0,
-            "latest_date": today_str,
-            "previous_date": yesterday_str
-        }
+    # Filter Controls
+    f_col1, f_col2, f_col3 = st.columns([1, 1.2, 1])
 
-    kpi_view_data = load_kpi_view_data()
-    render_kpi_cards(kpi_view_data, brand=BRAND)
+    with f_col1:
+        selected_dashboard = st.selectbox(
+            "Dashboard Type",
+            options=dashboard_options,
+            index=0,
+            key="dash_type_select"
+        )
+
+    # Fetch Production Lines from Stored Procedure based on selected dashboard
+    line_options = load_production_lines_from_db(selected_dashboard)
+
+    with f_col2:
+        default_start = datetime.date(2023, 7, 6)
+        default_end = datetime.date(2023, 7, 7)
+        date_selection = st.date_input(
+            "Date Range",
+            value=(default_start, default_end),
+            key="dash_date_select"
+        )
+
+        if isinstance(date_selection, (tuple, list)):
+            if len(date_selection) == 2:
+                start_dt, end_dt = date_selection[0], date_selection[1]
+            elif len(date_selection) == 1:
+                start_dt = end_dt = date_selection[0]
+            else:
+                start_dt = end_dt = default_start
+        else:
+            start_dt = end_dt = date_selection
+
+        start_date_str = start_dt.strftime("%Y-%m-%d")
+        end_date_str = end_dt.strftime("%Y-%m-%d")
+
+    with f_col3:
+        selected_line = st.selectbox(
+            "Production Line",
+            options=line_options,
+            index=0,
+            key="dash_line_select"
+        )
+
+    # Render Selected Dashboard (e.g. Molded) with high quality Plotly interactive charts
+    render_oee_dashboard(
+        dashboard_name=selected_dashboard,
+        start_date=start_date_str,
+        end_date=end_date_str,
+        line_name=selected_line
+    )
 
     st.write("")
 

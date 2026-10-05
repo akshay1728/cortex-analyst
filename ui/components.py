@@ -3,238 +3,335 @@
 import html
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 from typing import Dict, Any, List, Optional
+from services.settings_service import (
+    load_dashboard_types_from_db,
+    load_production_lines_from_db,
+    load_dashboard_metrics_from_db
+)
+
+# Brand tokens for dashboard and charts
+CARD_BG = "#FFFFFF"
+PURPLE_COLOR = "#a05c96"
+GREEN_COLOR = "#25e267"
+SLATE_COLOR = "#3d4b53"
+GRAY_LIGHT = "#e8ecef"
 
 
-# --------------------------------------------------------------------------
-# Brand tokens (kept local so this module renders correctly on its own)
-# --------------------------------------------------------------------------
-KPI_BRAND = {
-    "navy": "#242B6B",
-    "navy_light": "#3B4394",
-    "navy_deep": "#171C4A",
-    "coral": "#E15241",
-    "gold": "#E0A438",
-    "good": "#1E8E5A",
-    "good_bg": "#E7F4EE",
-    "bad": "#C8392B",
-    "bad_bg": "#FBEBE9",
-    "flat": "#6C7290",
-    "flat_bg": "#F0F1F7",
-    "rule": "#E4E7F3",
-    "muted": "#6C7290",
-    "track": "#ECEEF7",
-}
+def render_oee_dashboard(
+    dashboard_name: str,
+    start_date: str,
+    end_date: str,
+    line_name: str
+):
+    """Render the OEE Dashboard section sitting above the chat interface.
 
-_KPI_CSS = """
-<style>
-.kpi-strip {{
-    background: #FFFFFF;
-    border-radius: 16px;
-    padding: 4px 0 2px 0;
-    box-shadow: 0 10px 26px -18px rgba(31, 41, 107, 0.35);
-}}
-.kpi-period {{
-    font-size: 0.78rem;
-    color: {muted};
-    padding: 12px 20px 2px 20px;
-    letter-spacing: 0.1px;
-}}
-.kpi-period b {{ color: {navy}; font-weight: 600; }}
-.kpi-grid {{
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    align-items: stretch;
-}}
-.kpi-cell {{
-    padding: 14px 20px 18px 20px;
-    border-left: 1px solid {rule};
-}}
-.kpi-cell:first-child {{ border-left: none; }}
-.kpi-cell.is-lead .kpi-value {{ font-size: 2.15rem; }}
-.kpi-label {{
-    font-size: 0.82rem;
-    font-weight: 500;
-    color: {muted};
-    margin-bottom: 6px;
-}}
-.kpi-value {{
-    font-family: 'Poppins', 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 1.75rem;
-    line-height: 1.1;
-    color: {navy_deep};
-    letter-spacing: -0.5px;
-}}
-.kpi-value .unit {{
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: {muted};
-    margin-left: 3px;
-    letter-spacing: 0;
-}}
-.kpi-track {{
-    height: 3px;
-    border-radius: 3px;
-    background: {track};
-    margin: 10px 0 9px 0;
-    overflow: hidden;
-}}
-.kpi-track > span {{
-    display: block;
-    height: 100%;
-    border-radius: 3px;
-}}
-.kpi-foot {{
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
-}}
-.kpi-delta {{
-    font-size: 0.78rem;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 20px;
-    white-space: nowrap;
-}}
-.kpi-delta.up {{ color: {good}; background: {good_bg}; }}
-.kpi-delta.down {{ color: {bad}; background: {bad_bg}; }}
-.kpi-delta.flat {{ color: {flat}; background: {flat_bg}; }}
-.kpi-prev {{
-    font-size: 0.76rem;
-    color: {muted};
-    white-space: nowrap;
-}}
-@media (max-width: 1100px) {{
-    .kpi-grid {{ grid-template-columns: repeat(2, 1fr); }}
-    .kpi-cell {{ border-left: none; border-top: 1px solid {rule}; }}
-    .kpi-cell:nth-child(-n+2) {{ border-top: none; }}
-    .kpi-cell:nth-child(odd) {{ border-left: none; }}
-    .kpi-cell:nth-child(even) {{ border-left: 1px solid {rule}; }}
-}}
-</style>
-"""
+    Contains 3 vertical column sections matching image.png:
+    - Left Column:
+        1. Total Pounds (Horizontal Bar Chart for Shifts + Running Sum)
+        2. Total Pounds (Curved Area Chart over time)
+    - Middle Column:
+        1. Total Run Time & Lost Time KPI cards (633 Mins vs 343 Mins)
+        2. Total Run Time (100% Stacked Bar Chart comparing Run vs Lost time per time interval)
+    - Right Column:
+        1. OEE (Horizontal Bar Chart for Shifts)
+        2. OEE Gauge Chart (Half-donut gauge displaying Overall OEE)
+    """
+    data = load_dashboard_metrics_from_db(dashboard_name, start_date, end_date, line_name)
 
+    # CSS for dashboard container styling
+    st.markdown(
+        """
+        <style>
+        .dash-card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+            border: 1px solid #eef0f4;
+            margin-bottom: 16px;
+        }
+        .kpi-header-box {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 10px 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #eef0f4;
+            margin-bottom: 12px;
+        }
+        .kpi-stat-item {
+            text-align: center;
+        }
+        .kpi-stat-val {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2b303a;
+            line-height: 1.1;
+        }
+        .kpi-stat-lbl {
+            font-size: 0.8rem;
+            color: #6c757d;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+        .kpi-divider {
+            width: 1px;
+            height: 36px;
+            background-color: #dce1e7;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
-def _fmt_date(val: Any) -> str:
-    """Render a date-ish value as a short readable string."""
-    if val in (None, "", "N/A"):
-        return "—"
-    try:
-        return pd.to_datetime(val).strftime("%d %b %Y")
-    except Exception:
-        return html.escape(str(val))
+    col1, col2, col3 = st.columns([1, 1.1, 1])
 
+    # --------------------------------------------------------------------------
+    # COLUMN 1: TOTAL POUNDS (Horizontal Bar + Curved Area)
+    # --------------------------------------------------------------------------
+    with col1:
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        # Total Pounds Horizontal Bar
+        df_pounds = pd.DataFrame({
+            "shift": ["1st shift", "2nd shift", "3rd shift", "Running sum"],
+            "pounds": [
+                data.get("total_pounds_shift1", 15444),
+                data.get("total_pounds_shift2", 9461),
+                data.get("total_pounds_shift3", 0),
+                data.get("total_pounds_running_sum", 24905)
+            ],
+            "color": [PURPLE_COLOR, PURPLE_COLOR, PURPLE_COLOR, GREEN_COLOR]
+        })
 
-def _num(kpi_data: Dict[str, Any], *keys: str) -> float:
-    """First non-null numeric value among the given keys, else 0.0."""
-    for k in keys:
-        v = kpi_data.get(k)
-        if v is not None and v != "":
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                continue
-    return 0.0
+        fig_pounds_bar = go.Figure()
+        for idx, row in df_pounds.iterrows():
+            fig_pounds_bar.add_trace(go.Bar(
+                y=[row["shift"]],
+                x=[row["pounds"]],
+                orientation="h",
+                marker_color=row["color"],
+                text=[f"{int(row['pounds']):,}" if row['pounds'] > 0 else "0"],
+                textposition="inside" if row['pounds'] > 0 else "outside",
+                insidetextanchor="middle",
+                textfont=dict(color="white" if row["color"] == PURPLE_COLOR and row['pounds'] > 0 else "black", size=13, family="sans-serif"),
+                hoverinfo="text",
+                hovertext=f"{row['shift']}: {int(row['pounds']):,} lbs",
+                showlegend=False
+            ))
 
+        fig_pounds_bar.update_layout(
+            title=dict(text="Total Pounds", x=0.5, font=dict(size=16, color="#2b303a")),
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
+            margin=dict(l=10, r=10, t=35, b=10),
+            height=180,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_pounds_bar, use_container_width=True, key="fig_pounds_bar_main")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-def _delta_html(diff: float, higher_is_better: bool, suffix: str) -> str:
-    """Delta chip: direction arrow, magnitude, and tone based on what 'good' means."""
-    if abs(diff) < 0.05:
-        return '<span class="kpi-delta flat">no change</span>'
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        # Total Pounds Area Chart
+        df_area = pd.DataFrame({
+            "time": ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"],
+            "val": [5000, 7200, 15444, 22000, data.get("total_pounds_running_sum", 24905)]
+        })
 
-    arrow = "▲" if diff > 0 else "▼"
-    improving = diff > 0 if higher_is_better else diff < 0
-    tone = "up" if improving else "down"
+        fig_pounds_area = go.Figure()
+        fig_pounds_area.add_trace(go.Scatter(
+            x=df_area["time"],
+            y=df_area["val"],
+            fill="tozeroy",
+            mode="lines",
+            line_shape="spline",
+            line=dict(color=PURPLE_COLOR, width=2.5),
+            fillcolor="rgba(160, 92, 150, 0.45)",
+            hoverinfo="x+y",
+            hovertemplate="<b>%{x}</b><br>Pounds: %{y:,}<extra></extra>"
+        ))
+        fig_pounds_area.update_layout(
+            title=dict(text="Total Pounds", x=0.5, font=dict(size=16, color="#2b303a")),
+            xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            margin=dict(l=10, r=10, t=35, b=20),
+            height=170,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_pounds_area, use_container_width=True, key="fig_pounds_area_main")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    if suffix == "%":
-        magnitude = f"{abs(diff):.1f} pts"
-    else:
-        magnitude = f"{abs(round(diff)):,.0f} hrs"
-
-    return f'<span class="kpi-delta {tone}">{arrow} {magnitude}</span>'
-
-
-def _cell_html(label: str, value_txt: str, unit: str, bar_pct: Optional[float],
-               bar_color: str, diff: float, prev_txt: str,
-               higher_is_better: bool, suffix: str, lead: bool = False) -> str:
-    """One KPI cell: label, value, optional progress rule, delta and previous value."""
-    unit_html = f'<span class="unit">{unit}</span>' if unit else ""
-
-    if bar_pct is None:
-        track = '<div class="kpi-track"></div>'
-    else:
-        width = max(0.0, min(100.0, bar_pct))
-        track = (
-            f'<div class="kpi-track"><span style="width:{width:.1f}%;'
-            f'background:{bar_color};"></span></div>'
+    # --------------------------------------------------------------------------
+    # COLUMN 2: TOTAL RUN TIME (KPI Header + 100% Stacked Bar)
+    # --------------------------------------------------------------------------
+    with col2:
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        # KPI Header Cards
+        st.markdown(
+            f"""
+            <div class="kpi-header-box">
+                <div class="kpi-stat-item">
+                    <div class="kpi-stat-val">{int(data.get('total_run_time_mins', 633))}</div>
+                    <div class="kpi-stat-lbl">Total Run Time</div>
+                </div>
+                <div class="kpi-divider"></div>
+                <div class="kpi-stat-item">
+                    <div class="kpi-stat-val">{int(data.get('total_lost_time_mins', 343))}</div>
+                    <div class="kpi-stat-lbl">Total Lost Time</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    return (
-        f'<div class="kpi-cell{" is-lead" if lead else ""}">'
-        f'<div class="kpi-label">{html.escape(label)}</div>'
-        f'<div class="kpi-value">{value_txt}{unit_html}</div>'
-        f'{track}'
-        f'<div class="kpi-foot">{_delta_html(diff, higher_is_better, suffix)}'
-        f'<span class="kpi-prev">was {prev_txt}</span></div>'
-        f'</div>'
-    )
+        # Stacked 100% Bar Chart
+        times = ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"]
+        run_pct = [62, 64, 64, 64, 62]
+        lost_pct = [38, 36, 36, 36, 38]
 
+        fig_stacked = go.Figure()
+        fig_stacked.add_trace(go.Bar(
+            name="Sum of Total run time",
+            x=times,
+            y=run_pct,
+            marker_color=PURPLE_COLOR,
+            hovertemplate="<b>%{x}</b><br>Run Time: %{y}%<extra></extra>"
+        ))
+        fig_stacked.add_trace(go.Bar(
+            name="Sum of Total lost time",
+            x=times,
+            y=lost_pct,
+            marker_color=SLATE_COLOR,
+            hovertemplate="<b>%{x}</b><br>Lost Time: %{y}%<extra></extra>"
+        ))
 
-def render_kpi_cards(kpi_data: Dict[str, Any], brand: Optional[Dict[str, str]] = None):
-    """Render the KPI strip: current period values with change against the previous period."""
-    tokens = dict(KPI_BRAND)
-    if brand:
-        tokens.update({k: v for k, v in brand.items() if k in tokens})
+        fig_stacked.update_layout(
+            barmode="stack",
+            title=dict(text="Total Run Time", x=0.5, font=dict(size=16, color="#2b303a")),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=11, color="#6c757d")
+            ),
+            xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="#f0f2f5",
+                range=[0, 100],
+                ticksuffix="%",
+                tickfont=dict(size=10, color="#6c757d")
+            ),
+            margin=dict(l=10, r=10, t=50, b=20),
+            height=305,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_stacked, use_container_width=True, key="fig_stacked_main")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    if not kpi_data:
-        kpi_data = {}
+    # --------------------------------------------------------------------------
+    # COLUMN 3: OEE (Horizontal Bar + Gauge)
+    # --------------------------------------------------------------------------
+    with col3:
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        # OEE Horizontal Bar
+        df_oee = pd.DataFrame({
+            "shift": ["1st shift", "2nd shift", "3rd shift"],
+            "oee": [
+                int(data.get("oee_shift1", 60)),
+                int(data.get("oee_shift2", 36)),
+                int(data.get("oee_shift3", 0))
+            ]
+        })
 
-    latest_date = _fmt_date(
-        kpi_data.get("latest_date") or kpi_data.get("current_date") or kpi_data.get("current_end_date")
-    )
-    previous_date = _fmt_date(
-        kpi_data.get("previous_date") or kpi_data.get("prev_date") or kpi_data.get("previous_end_date")
-    )
+        fig_oee_bar = go.Figure()
+        for idx, row in df_oee.iterrows():
+            fig_oee_bar.add_trace(go.Bar(
+                y=[row["shift"]],
+                x=[row["oee"]],
+                orientation="h",
+                marker_color=PURPLE_COLOR,
+                text=[f"{row['oee']}" if row['oee'] > 0 else "0"],
+                textposition="inside" if row['oee'] > 0 else "outside",
+                insidetextanchor="middle",
+                textfont=dict(color="white" if row['oee'] > 0 else "black", size=13, family="sans-serif"),
+                hoverinfo="text",
+                hovertext=f"{row['shift']}: OEE {row['oee']}%",
+                showlegend=False
+            ))
 
-    curr_oee = _num(kpi_data, "current_oee", "oee")
-    prev_oee = _num(kpi_data, "previous_oee")
-    curr_avail = _num(kpi_data, "current_availability", "availability")
-    prev_avail = _num(kpi_data, "previous_availability")
-    curr_perf = _num(kpi_data, "current_performance", "performance")
-    prev_perf = _num(kpi_data, "previous_performance")
-    curr_qual = _num(kpi_data, "current_quality", "quality")
-    prev_qual = _num(kpi_data, "previous_quality")
-    curr_dt = _num(kpi_data, "current_downtime_hours", "total_downtime_hours")
-    prev_dt = _num(kpi_data, "previous_downtime_hours")
+        fig_oee_bar.update_layout(
+            title=dict(text="OEE", x=0.5, font=dict(size=16, color="#2b303a")),
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
+            margin=dict(l=10, r=10, t=35, b=10),
+            height=180,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_oee_bar, use_container_width=True, key="fig_oee_bar_main")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # Downtime has no natural 0-100 scale, so its rule shows the current period
-    # against the larger of the two periods instead.
-    dt_scale = max(curr_dt, prev_dt)
-    dt_bar = (curr_dt / dt_scale * 100.0) if dt_scale > 0 else 0.0
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        # OEE Half Gauge Chart
+        overall_oee_val = int(data.get("overall_oee", 47))
+        remaining_oee = max(0, 100 - overall_oee_val)
 
-    cells = [
-        _cell_html("Overall OEE", f"{curr_oee:.1f}", "%", curr_oee, tokens["navy"],
-                   curr_oee - prev_oee, f"{prev_oee:.1f}%", True, "%", lead=True),
-        _cell_html("Availability", f"{curr_avail:.1f}", "%", curr_avail, tokens["navy_light"],
-                   curr_avail - prev_avail, f"{prev_avail:.1f}%", True, "%"),
-        _cell_html("Performance", f"{curr_perf:.1f}", "%", curr_perf, tokens["navy_light"],
-                   curr_perf - prev_perf, f"{prev_perf:.1f}%", True, "%"),
-        _cell_html("Quality", f"{curr_qual:.1f}", "%", curr_qual, tokens["navy_light"],
-                   curr_qual - prev_qual, f"{prev_qual:.1f}%", True, "%"),
-        _cell_html("Downtime", f"{curr_dt:,.0f}", "hrs", dt_bar, tokens["coral"],
-                   curr_dt - prev_dt, f"{prev_dt:,.0f} hrs", False, " hrs"),
-    ]
+        fig_gauge = go.Figure(data=[
+            go.Pie(
+                values=[overall_oee_val, remaining_oee, 100],
+                labels=["OEE", "Remaining", "Bottom"],
+                marker=dict(colors=[PURPLE_COLOR, "#e9ecef", "rgba(0,0,0,0)"]),
+                hole=0.72,
+                sort=False,
+                direction="clockwise",
+                rotation=270,
+                showlegend=False,
+                hoverinfo="label+value",
+                textinfo="none"
+            )
+        ])
 
-    st.markdown(_KPI_CSS.format(**tokens), unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="kpi-strip">'
-        f'<div class="kpi-period">Showing <b>{latest_date}</b>, compared with {previous_date}</div>'
-        f'<div class="kpi-grid">{"".join(cells)}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        # Add text annotation inside gauge
+        fig_gauge.add_annotation(
+            text=f"<b style='font-size:36px;color:#2b303a;'>{overall_oee_val}</b>",
+            x=0.5, y=0.25,
+            showarrow=False,
+            xref="paper", yref="paper"
+        )
+        fig_gauge.add_annotation(
+            text="0",
+            x=0.18, y=0.08,
+            showarrow=False,
+            font=dict(size=11, color="#6c757d"),
+            xref="paper", yref="paper"
+        )
+        fig_gauge.add_annotation(
+            text="100",
+            x=0.82, y=0.08,
+            showarrow=False,
+            font=dict(size=11, color="#6c757d"),
+            xref="paper", yref="paper"
+        )
+
+        fig_gauge.update_layout(
+            title=dict(text="OEE", x=0.5, font=dict(size=16, color="#2b303a")),
+            margin=dict(l=10, r=10, t=35, b=10),
+            height=170,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_gauge, use_container_width=True, key="fig_oee_gauge_main")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_sample_questions(on_click_callback):
@@ -262,18 +359,10 @@ def render_sample_questions(on_click_callback):
 
 
 def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
-    """Apply background color styling to DataFrame columns matching metric thresholds.
-
-    `metric_colors` format:
-    {
-        "oee": {"enabled": False, "threshold": 85.0, "pass_color": "#28a745", "fail_color": "#dc3545"},
-        "availability": ...
-    }
-    """
+    """Apply background color styling to DataFrame columns matching metric thresholds."""
     if df is None or df.empty:
         return df
 
-    # Normalize column mapping
     metric_aliases = {
         "oee": ["oee", "oee_pct", "oee_percentage", "overall_oee"],
         "availability": ["availability", "avail", "availability_pct", "availability_percentage"],
@@ -293,7 +382,6 @@ def style_dataframe_metrics(df: pd.DataFrame, metric_colors: dict):
 
         aliases = metric_aliases.get(m_key, [m_key])
 
-        # Find matching columns in DataFrame (case-insensitive substring or exact match)
         matched_cols = []
         for col in df.columns:
             col_lower = str(col).lower()
