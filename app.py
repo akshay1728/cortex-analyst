@@ -27,8 +27,7 @@ from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
 from ui.components import render_kpi_cards, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
-from services.cortex_analyst import CortexAnalystService
-from services.cortex_ai import CortexAIService
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("oee_streamlit_app")
@@ -91,7 +90,7 @@ if "db_settings_loaded" not in st.session_state:
     db_sets = db_res.get("settings", {})
 
     st.session_state.settings_header_title = db_sets.get("header_title") or "OEE AI Assistant"
-    st.session_state.settings_header_subtitle = db_sets.get("header_subtitle") or "Ask natural language questions about plant performance, equipment availability, line productivity, and downtime root causes — powered by Cortex Analyst."
+    st.session_state.settings_header_subtitle = db_sets.get("header_subtitle") or "Ask natural language questions about plant performance, equipment availability, line productivity, and downtime root causes"
     st.session_state.settings_pdf_filename_template = db_sets.get("pdf_filename_template") or "OEE_Conversation_Report_{YYYYMMDD}.pdf"
     st.session_state.settings_semantic_view = db_sets.get("semantic_view") or f"{DB}.{ANALYTICS_SCHEMA}.SVW_TRAKSYS"
     st.session_state.settings_warehouse_name = db_sets.get("warehouse_name") or "WH_APPS"
@@ -512,9 +511,6 @@ def load_dataset():
 
 df_raw = load_dataset()
 
-# Initialize Services
-analyst_service = CortexAnalystService(df_raw)
-cortex_ai_service = CortexAIService()
 
 # --------------------------------------------------------------------------
 # Render Logo in Sidebar Top
@@ -541,7 +537,8 @@ if logo_b64_str:
 # Navigation Sidebar & Admin Privilege Verification
 # --------------------------------------------------------------------------
 if "is_user_admin" not in st.session_state:
-    st.session_state.is_user_admin = check_is_admin()
+    user_name_val = getattr(st.user, "user_name", None) if hasattr(st, "user") else None
+    st.session_state.is_user_admin = check_is_admin(user_name_val)
 
 NAV_ITEMS = {
     "💬  Chat assistant": "chat",
@@ -612,23 +609,8 @@ if nav_page == "settings":
     render_settings_page()
 
 else:
-    # --- Chat Assistant Page ---
-    filters = {
-        "date_range": (),
-        "plants": ["All"],
-        "lines": ["All"],
-        "shifts": ["All"],
-        "product_families": ["All"]
-    }
-
-    st.sidebar.markdown('<div class="sidebar-group">Tools</div>', unsafe_allow_html=True)
-    debug_mode = st.sidebar.toggle("Developer mode", value=False)
-
-    # Filter Dataset
-    df_filtered = analyst_service._apply_filters(df_raw, filters) if not df_raw.empty else df_raw
-
     # KPI Cards loaded from view VW_OEE_KPI_CARDS
-    st.markdown('<div class="section-label">📊 Plant Performance Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">📊 Performance Overview</div>', unsafe_allow_html=True)
 
     def load_kpi_view_data():
         if snowflake_session is not None:
