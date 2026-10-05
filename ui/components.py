@@ -12,13 +12,13 @@ from services.settings_service import (
     load_dashboard_metrics_from_db
 )
 
-# Brand tokens for dashboard and charts
-CARD_BG = "#FFFFFF"
+# Standardized design tokens & typography
+FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+# Primary theme colors per dashboard
 PURPLE_COLOR = "#a05c96"
 GREEN_COLOR = "#25e267"
 SLATE_COLOR = "#3d4b53"
-GRAY_LIGHT = "#e8ecef"
-
 
 OLIVE_COLOR = "#b2961d"
 RED_COLOR = "#cb0d19"
@@ -43,7 +43,83 @@ def render_oee_dashboard(
         return
 
     # Default / Molded Dashboard Layout
-    _render_molded_dashboard(data)
+    _render_molded_dashboard(data, line_name)
+
+
+def _render_dash_header(title: str, subtitle: str, stats: List[dict], theme_color: str):
+    """Render standardized top header banner for all dashboards."""
+    stats_html = "".join([
+        f"""
+        <div class="dash-stat-item">
+            <div class="dash-stat-val">{s['val']:,}</div>
+            <div class="dash-stat-lbl">{s['lbl']}</div>
+        </div>
+        """
+        for s in stats
+    ])
+
+    st.markdown(
+        f"""
+        <style>
+        .dash-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+            padding: 14px 24px;
+            border-radius: 12px;
+            border: 1px solid #eef0f4;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.03);
+            margin-bottom: 18px;
+        }}
+        .dash-title-box {{
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+        }}
+        .dash-title {{
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: {theme_color};
+            line-height: 1;
+            letter-spacing: -0.5px;
+        }}
+        .dash-subtitle {{
+            font-size: 1.05rem;
+            color: #2b303a;
+            font-weight: 500;
+        }}
+        .dash-stats-box {{
+            display: flex;
+            gap: 36px;
+        }}
+        .dash-stat-item {{
+            text-align: center;
+        }}
+        .dash-stat-val {{
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #1a1a1a;
+            line-height: 1;
+        }}
+        .dash-stat-lbl {{
+            font-size: 0.82rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }}
+        </style>
+        <div class="dash-header">
+            <div class="dash-title-box">
+                <div class="dash-title">{html.escape(title)}</div>
+                <div class="dash-subtitle">{html.escape(subtitle)}</div>
+            </div>
+            <div class="dash-stats-box">
+                {stats_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
@@ -53,77 +129,15 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
     lost_time = int(data.get("total_lost_time_mins", 211))
     scrap = int(data.get("scrap", 8209))
 
-    st.markdown(
-        f"""
-        <style>
-        .marsh-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #ffffff;
-            padding: 12px 24px;
-            border-radius: 12px;
-            border: 1px solid #eef0f4;
-            margin-bottom: 16px;
-        }}
-        .marsh-title-box {{
-            display: flex;
-            align-items: baseline;
-            gap: 16px;
-        }}
-        .marsh-title {{
-            font-size: 3rem;
-            font-weight: 800;
-            color: {BLUE_BRIGHT};
-            line-height: 1;
-            text-decoration: underline;
-        }}
-        .marsh-subtitle {{
-            font-size: 1.05rem;
-            color: #2b303a;
-            font-weight: 500;
-        }}
-        .marsh-stats-box {{
-            display: flex;
-            gap: 40px;
-        }}
-        .marsh-stat-item {{
-            text-align: center;
-        }}
-        .marsh-stat-val {{
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #1a1a1a;
-            line-height: 1;
-        }}
-        .marsh-stat-lbl {{
-            font-size: 0.82rem;
-            color: #6c757d;
-            margin-top: 4px;
-        }}
-        </style>
-        <div class="marsh-header">
-            <div class="marsh-title-box">
-                <div class="marsh-title">{html.escape(display_line)}</div>
-                <div class="marsh-subtitle">Tuesday, July 07, 2026</div>
-            </div>
-            <div class="marsh-stats-box">
-                <div class="marsh-stat-item">
-                    <div class="marsh-stat-val">{run_time:,}</div>
-                    <div class="marsh-stat-lbl">Total Run Time</div>
-                </div>
-                <div class="marsh-stat-item">
-                    <div class="marsh-stat-val">{lost_time:,}</div>
-                    <div class="marsh-stat-lbl">Total Lost Time</div>
-                </div>
-                <div class="marsh-stat-item">
-                    <div class="marsh-stat-val">{scrap:,}</div>
-                    <div class="marsh-stat-lbl">Scrap</div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    _render_dash_header(
+        title=display_line,
+        subtitle="Tuesday, July 07, 2026",
+        stats=[
+            {"val": run_time, "lbl": "Total Run Time"},
+            {"val": lost_time, "lbl": "Total Lost Time"},
+            {"val": scrap, "lbl": "Scrap"}
+        ],
+        theme_color=BLUE_BRIGHT
     )
 
     col1, col2, col3 = st.columns([1, 1.2, 1])
@@ -151,18 +165,18 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
                     text=[f"{int(row['pounds']):,}"],
                     textposition="inside",
                     insidetextanchor="middle",
-                    textfont=dict(color="white", size=13, family="sans-serif"),
+                    textfont=dict(color="white", size=13, family=FONT_FAMILY),
                     hoverinfo="text",
                     hovertext=f"{row['shift']}: {int(row['pounds']):,} lbs",
                     showlegend=False
                 ))
 
             fig_pounds_bar.update_layout(
-                title=dict(text="Pounds Packed by Shift", x=0.5, font=dict(size=15, color="#2b303a")),
+                title=dict(text="Pounds Packed by Shift", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=200,
+                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=210,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -196,20 +210,20 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
                 text="0",
                 x=0.18, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
             fig_gauge.add_annotation(
                 text="100",
                 x=0.82, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
             fig_gauge.update_layout(
-                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=180,
+                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=190,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -230,17 +244,17 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
                 )
             ])
             fig_pie.update_layout(
-                title=dict(text="Scrap", x=0.5, font=dict(size=15, color="#2b303a")),
+                title=dict(text="Scrap", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
-                    y=-0.1,
+                    y=-0.15,
                     xanchor="center",
                     x=0.5,
-                    font=dict(size=11, color="#495057")
+                    font=dict(size=11, color="#495057", family=FONT_FAMILY)
                 ),
-                margin=dict(l=20, r=20, t=40, b=40),
-                height=410,
+                margin=dict(l=20, r=20, t=55, b=45),
+                height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -271,25 +285,25 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total Run Time", x=0.5, font=dict(size=15, color="#2b303a")),
+                title=dict(text="Total Run Time", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
                     y=1.02,
                     xanchor="center",
                     x=0.5,
-                    font=dict(size=11, color="#495057")
+                    font=dict(size=11, color="#495057", family=FONT_FAMILY)
                 ),
-                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)),
                 yaxis=dict(
                     showgrid=True,
                     gridcolor="#f0f2f5",
                     range=[0, 100],
                     ticksuffix="%",
-                    tickfont=dict(size=10, color="#6c757d")
+                    tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=50, b=20),
-                height=410,
+                margin=dict(l=10, r=10, t=75, b=20),
+                height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -298,59 +312,25 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
 
 def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
     """Render Moghul dashboard matching image.png specifications."""
-    # Top Header Banner matching Moghul image layout
     display_line = line_name if line_name and line_name != "All Lines" else "NID-C"
     run_time = int(data.get("total_run_time_mins", 993))
     lost_time = int(data.get("total_lost_time_mins", 444))
     trucks = int(data.get("total_shakeout_trucks", 174))
 
+    _render_dash_header(
+        title=display_line,
+        subtitle="Tuesday, July 07, 2026",
+        stats=[
+            {"val": run_time, "lbl": "Total run time"},
+            {"val": lost_time, "lbl": "Total lost time"},
+            {"val": trucks, "lbl": "Total shakeout trucks"}
+        ],
+        theme_color=OLIVE_COLOR
+    )
+
     st.markdown(
         f"""
         <style>
-        .moghul-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #ffffff;
-            padding: 12px 24px;
-            border-radius: 12px;
-            border: 1px solid #eef0f4;
-            margin-bottom: 16px;
-        }}
-        .moghul-title-box {{
-            display: flex;
-            align-items: baseline;
-            gap: 16px;
-        }}
-        .moghul-title {{
-            font-size: 2.8rem;
-            font-weight: 800;
-            color: {OLIVE_COLOR};
-            line-height: 1;
-        }}
-        .moghul-subtitle {{
-            font-size: 1.05rem;
-            color: #2b303a;
-            font-weight: 500;
-        }}
-        .moghul-stats-box {{
-            display: flex;
-            gap: 40px;
-        }}
-        .moghul-stat-item {{
-            text-align: center;
-        }}
-        .moghul-stat-val {{
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #1a1a1a;
-            line-height: 1;
-        }}
-        .moghul-stat-lbl {{
-            font-size: 0.82rem;
-            color: #6c757d;
-            margin-top: 4px;
-        }}
         .shift-box-row {{
             display: flex;
             justify-content: space-between;
@@ -360,6 +340,7 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
         .shift-lbl {{
             font-size: 0.92rem;
             color: #495057;
+            font-family: {FONT_FAMILY};
         }}
         .shift-val-badge {{
             background-color: {OLIVE_COLOR};
@@ -383,26 +364,6 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
             margin-top: 8px;
         }}
         </style>
-        <div class="moghul-header">
-            <div class="moghul-title-box">
-                <div class="moghul-title">{html.escape(display_line)}</div>
-                <div class="moghul-subtitle">Tuesday, July 07, 2026</div>
-            </div>
-            <div class="moghul-stats-box">
-                <div class="moghul-stat-item">
-                    <div class="moghul-stat-val">{run_time:,}</div>
-                    <div class="moghul-stat-lbl">Total run time</div>
-                </div>
-                <div class="moghul-stat-item">
-                    <div class="moghul-stat-val">{lost_time:,}</div>
-                    <div class="moghul-stat-lbl">Total lost time</div>
-                </div>
-                <div class="moghul-stat-item">
-                    <div class="moghul-stat-val">{trucks:,}</div>
-                    <div class="moghul-stat-lbl">Total shakeout trucks</div>
-                </div>
-            </div>
-        </div>
         """,
         unsafe_allow_html=True
     )
@@ -412,7 +373,7 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
     # Left Column: Boards Cast & Total OEE Gauge
     with col1:
         with st.container(border=True):
-            st.markdown('<div style="text-align:center; font-weight:600; font-size:1.05rem; color:#2b303a; margin-bottom:12px;">Boards Cast</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align:center; font-weight:600; font-size:1.05rem; color:#2b303a; font-family:{FONT_FAMILY}; margin-bottom:12px;">Boards Cast</div>', unsafe_allow_html=True)
             b1 = int(data.get("boards_cast_shift1", 7020))
             b2 = int(data.get("boards_cast_shift2", 7218))
             b3 = int(data.get("boards_cast_shift3", 7225))
@@ -468,20 +429,20 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
                 text="0.00",
                 x=0.18, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
             fig_gauge.add_annotation(
                 text="100.00",
                 x=0.82, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
             fig_gauge.update_layout(
-                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=180,
+                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=190,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -512,25 +473,25 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total shift run time and Total lost time", x=0.5, font=dict(size=15, color="#2b303a")),
+                title=dict(text="Total shift run time and Total lost time", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
                     y=1.02,
                     xanchor="center",
                     x=0.5,
-                    font=dict(size=11, color="#495057")
+                    font=dict(size=11, color="#495057", family=FONT_FAMILY)
                 ),
-                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)),
                 yaxis=dict(
                     showgrid=True,
                     gridcolor="#f0f2f5",
                     range=[0, 100],
                     ticksuffix="%",
-                    tickfont=dict(size=10, color="#6c757d")
+                    tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=50, b=20),
-                height=420,
+                margin=dict(l=10, r=10, t=75, b=20),
+                height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -553,19 +514,35 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
                 hovertemplate="Day %{x}<br>Trucks: %{y}<extra></extra>"
             ))
             fig_trucks.update_layout(
-                title=dict(text="Total shakeout trucks", x=0.5, font=dict(size=15, color="#2b303a")),
-                xaxis=dict(title="Day<br>July / Qtr 3 / 2026", showgrid=False, tickfont=dict(size=11, color="#2b303a")),
-                yaxis=dict(title="Total trucks", showgrid=True, gridcolor="#f0f2f5", tickfont=dict(size=10, color="#6c757d")),
-                margin=dict(l=10, r=10, t=40, b=30),
-                height=420,
+                title=dict(text="Total shakeout trucks", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
+                xaxis=dict(title="Day<br>July / Qtr 3 / 2026", showgrid=False, tickfont=dict(size=11, color="#2b303a", family=FONT_FAMILY)),
+                yaxis=dict(title="Total trucks", showgrid=True, gridcolor="#f0f2f5", tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=30),
+                height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
             st.plotly_chart(fig_trucks, use_container_width=True, key="fig_moghul_trucks")
 
 
-def _render_molded_dashboard(data: Dict[str, Any]):
-    """Render Molded dashboard layout."""
+def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
+    """Render Molded dashboard layout with consistent top header banner."""
+    display_line = line_name if line_name and line_name != "All Lines" else "Molded Line"
+    run_time = int(data.get("total_run_time_mins", 633))
+    lost_time = int(data.get("total_lost_time_mins", 343))
+    pounds_sum = int(data.get("total_pounds_running_sum", 24905))
+
+    _render_dash_header(
+        title=display_line,
+        subtitle="Tuesday, July 07, 2026",
+        stats=[
+            {"val": run_time, "lbl": "Total Run Time (Mins)"},
+            {"val": lost_time, "lbl": "Total Lost Time (Mins)"},
+            {"val": pounds_sum, "lbl": "Total Pounds (Lbs)"}
+        ],
+        theme_color=PURPLE_COLOR
+    )
+
     col1, col2, col3 = st.columns([1, 1.1, 1])
 
     # --------------------------------------------------------------------------
@@ -595,18 +572,18 @@ def _render_molded_dashboard(data: Dict[str, Any]):
                     text=[f"{int(row['pounds']):,}" if row['pounds'] > 0 else "0"],
                     textposition="inside" if row['pounds'] > 0 else "outside",
                     insidetextanchor="middle",
-                    textfont=dict(color="white" if row["color"] == PURPLE_COLOR and row['pounds'] > 0 else "black", size=13, family="sans-serif"),
+                    textfont=dict(color="white" if row["color"] == PURPLE_COLOR and row['pounds'] > 0 else "black", size=13, family=FONT_FAMILY),
                     hoverinfo="text",
                     hovertext=f"{row['shift']}: {int(row['pounds']):,} lbs",
                     showlegend=False
                 ))
 
             fig_pounds_bar.update_layout(
-                title=dict(text="Total Pounds", x=0.5, font=dict(size=16, color="#2b303a")),
+                title=dict(text="Total Pounds", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
                 xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=180,
+                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=200,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -632,40 +609,21 @@ def _render_molded_dashboard(data: Dict[str, Any]):
                 hovertemplate="<b>%{x}</b><br>Pounds: %{y:,}<extra></extra>"
             ))
             fig_pounds_area.update_layout(
-                title=dict(text="Total Pounds", x=0.5, font=dict(size=16, color="#2b303a")),
-                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                title=dict(text="Total Pounds Trend", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
+                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)),
                 yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-                margin=dict(l=10, r=10, t=35, b=20),
-                height=170,
+                margin=dict(l=10, r=10, t=55, b=20),
+                height=190,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
             st.plotly_chart(fig_pounds_area, use_container_width=True, key="fig_pounds_area_main")
 
     # --------------------------------------------------------------------------
-    # COLUMN 2: TOTAL RUN TIME (KPI Header + 100% Stacked Bar)
+    # COLUMN 2: TOTAL RUN TIME (100% Stacked Bar)
     # --------------------------------------------------------------------------
     with col2:
         with st.container(border=True):
-            # KPI Header Cards
-            st.markdown(
-                f"""
-                <div class="kpi-header-box">
-                    <div class="kpi-stat-item">
-                        <div class="kpi-stat-val">{int(data.get('total_run_time_mins', 633))}</div>
-                        <div class="kpi-stat-lbl">Total Run Time</div>
-                    </div>
-                    <div class="kpi-divider"></div>
-                    <div class="kpi-stat-item">
-                        <div class="kpi-stat-val">{int(data.get('total_lost_time_mins', 343))}</div>
-                        <div class="kpi-stat-lbl">Total Lost Time</div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            # Stacked 100% Bar Chart
             times = ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"]
             run_pct = [62, 64, 64, 64, 62]
             lost_pct = [38, 36, 36, 36, 38]
@@ -688,25 +646,25 @@ def _render_molded_dashboard(data: Dict[str, Any]):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total Run Time", x=0.5, font=dict(size=16, color="#2b303a")),
+                title=dict(text="Total Run Time vs Lost Time", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
                     y=1.02,
                     xanchor="center",
                     x=0.5,
-                    font=dict(size=11, color="#6c757d")
+                    font=dict(size=11, color="#6c757d", family=FONT_FAMILY)
                 ),
-                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)),
                 yaxis=dict(
                     showgrid=True,
                     gridcolor="#f0f2f5",
                     range=[0, 100],
                     ticksuffix="%",
-                    tickfont=dict(size=10, color="#6c757d")
+                    tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=50, b=20),
-                height=305,
+                margin=dict(l=10, r=10, t=75, b=20),
+                height=410,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -737,18 +695,18 @@ def _render_molded_dashboard(data: Dict[str, Any]):
                     text=[f"{row['oee']}" if row['oee'] > 0 else "0"],
                     textposition="inside" if row['oee'] > 0 else "outside",
                     insidetextanchor="middle",
-                    textfont=dict(color="white" if row['oee'] > 0 else "black", size=13, family="sans-serif"),
+                    textfont=dict(color="white" if row['oee'] > 0 else "black", size=13, family=FONT_FAMILY),
                     hoverinfo="text",
                     hovertext=f"{row['shift']}: OEE {row['oee']}%",
                     showlegend=False
                 ))
 
             fig_oee_bar.update_layout(
-                title=dict(text="OEE", x=0.5, font=dict(size=16, color="#2b303a")),
+                title=dict(text="Shift OEE", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
                 xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=180,
+                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=200,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
@@ -785,21 +743,21 @@ def _render_molded_dashboard(data: Dict[str, Any]):
                 text="0",
                 x=0.18, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
             fig_gauge.add_annotation(
                 text="100",
                 x=0.82, y=0.08,
                 showarrow=False,
-                font=dict(size=11, color="#6c757d"),
+                font=dict(size=11, color="#6c757d", family=FONT_FAMILY),
                 xref="paper", yref="paper"
             )
 
             fig_gauge.update_layout(
-                title=dict(text="OEE", x=0.5, font=dict(size=16, color="#2b303a")),
-                margin=dict(l=10, r=10, t=35, b=10),
-                height=170,
+                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
+                margin=dict(l=10, r=10, t=55, b=10),
+                height=190,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
             )
