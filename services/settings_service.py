@@ -230,6 +230,19 @@ def load_dashboard_metrics_from_db(
             "total_boards": 21463,
             "overall_oee": 54.00,
         }
+    elif dashboard_name and dashboard_name.lower() == "marshmallow":
+        defaults = {
+            "dashboard_name": "Marshmallow",
+            "line_name": line_name or "Belt 1",
+            "total_run_time_mins": 1227,
+            "total_lost_time_mins": 211,
+            "scrap": 8209,
+            "pounds_packed_shift1": 12357,
+            "pounds_packed_shift2": 15338,
+            "pounds_packed_shift3": 9390,
+            "total_pounds_packed": 37085,
+            "overall_oee": 78,
+        }
     else:
         defaults = {
             "dashboard_name": dashboard_name,

@@ -22,6 +22,7 @@ GRAY_LIGHT = "#e8ecef"
 
 OLIVE_COLOR = "#b2961d"
 RED_COLOR = "#cb0d19"
+BLUE_BRIGHT = "#0080FF"
 
 
 def render_oee_dashboard(
@@ -33,13 +34,266 @@ def render_oee_dashboard(
     """Render the OEE Dashboard section sitting above the chat interface."""
     data = load_dashboard_metrics_from_db(dashboard_name, start_date, end_date, line_name)
 
-    # If Moghul dashboard selected, render Moghul specific layout matching screenshot
     if dashboard_name and dashboard_name.lower() == "moghul":
         _render_moghul_dashboard(data, line_name)
         return
 
+    if dashboard_name and dashboard_name.lower() == "marshmallow":
+        _render_marshmallow_dashboard(data, line_name)
+        return
+
     # Default / Molded Dashboard Layout
     _render_molded_dashboard(data)
+
+
+def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
+    """Render Marshmallow dashboard matching image.png specifications."""
+    display_line = line_name if line_name and line_name != "All Lines" else "Belt 1"
+    run_time = int(data.get("total_run_time_mins", 1227))
+    lost_time = int(data.get("total_lost_time_mins", 211))
+    scrap = int(data.get("scrap", 8209))
+
+    st.markdown(
+        f"""
+        <style>
+        .marsh-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: 1px solid #eef0f4;
+            margin-bottom: 16px;
+        }}
+        .marsh-title-box {{
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+        }}
+        .marsh-title {{
+            font-size: 3rem;
+            font-weight: 800;
+            color: {BLUE_BRIGHT};
+            line-height: 1;
+            text-decoration: underline;
+        }}
+        .marsh-subtitle {{
+            font-size: 1.05rem;
+            color: #2b303a;
+            font-weight: 500;
+        }}
+        .marsh-stats-box {{
+            display: flex;
+            gap: 40px;
+        }}
+        .marsh-stat-item {{
+            text-align: center;
+        }}
+        .marsh-stat-val {{
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #1a1a1a;
+            line-height: 1;
+        }}
+        .marsh-stat-lbl {{
+            font-size: 0.82rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }}
+        </style>
+        <div class="marsh-header">
+            <div class="marsh-title-box">
+                <div class="marsh-title">{html.escape(display_line)}</div>
+                <div class="marsh-subtitle">Tuesday, July 07, 2026</div>
+            </div>
+            <div class="marsh-stats-box">
+                <div class="marsh-stat-item">
+                    <div class="marsh-stat-val">{run_time:,}</div>
+                    <div class="marsh-stat-lbl">Total Run Time</div>
+                </div>
+                <div class="marsh-stat-item">
+                    <div class="marsh-stat-val">{lost_time:,}</div>
+                    <div class="marsh-stat-lbl">Total Lost Time</div>
+                </div>
+                <div class="marsh-stat-item">
+                    <div class="marsh-stat-val">{scrap:,}</div>
+                    <div class="marsh-stat-lbl">Scrap</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+
+    # Left Column: Pounds Packed by Shift & Total OEE Gauge
+    with col1:
+        with st.container(border=True):
+            p1 = int(data.get("pounds_packed_shift1", 12357))
+            p2 = int(data.get("pounds_packed_shift2", 15338))
+            p3 = int(data.get("pounds_packed_shift3", 9390))
+            p_total = int(data.get("total_pounds_packed", 37085))
+
+            df_pounds = pd.DataFrame({
+                "shift": ["1st shift", "2nd shift", "3rd shift", "Total"],
+                "pounds": [p1, p2, p3, p_total]
+            })
+
+            fig_pounds_bar = go.Figure()
+            for idx, row in df_pounds.iterrows():
+                fig_pounds_bar.add_trace(go.Bar(
+                    y=[row["shift"]],
+                    x=[row["pounds"]],
+                    orientation="h",
+                    marker_color=BLUE_BRIGHT,
+                    text=[f"{int(row['pounds']):,}"],
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(color="white", size=13, family="sans-serif"),
+                    hoverinfo="text",
+                    hovertext=f"{row['shift']}: {int(row['pounds']):,} lbs",
+                    showlegend=False
+                ))
+
+            fig_pounds_bar.update_layout(
+                title=dict(text="Pounds Packed by Shift", x=0.5, font=dict(size=15, color="#2b303a")),
+                xaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+                yaxis=dict(autorange="reversed", tickfont=dict(size=12, color="#2b303a", family="sans-serif")),
+                margin=dict(l=10, r=10, t=35, b=10),
+                height=200,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_pounds_bar, use_container_width=True, key="fig_marsh_pounds")
+
+        with st.container(border=True):
+            oee_val = int(data.get("overall_oee", 78))
+            remaining_oee = max(0, 100 - oee_val)
+
+            fig_gauge = go.Figure(data=[
+                go.Pie(
+                    values=[oee_val, remaining_oee, 100],
+                    labels=["OEE", "Remaining", "Bottom"],
+                    marker=dict(colors=[BLUE_BRIGHT, "#e8ecef", "rgba(0,0,0,0)"]),
+                    hole=0.72,
+                    sort=False,
+                    direction="clockwise",
+                    rotation=270,
+                    showlegend=False,
+                    hoverinfo="label+value",
+                    textinfo="none"
+                )
+            ])
+            fig_gauge.add_annotation(
+                text=f"<b style='font-size:38px;color:#2b303a;'>{oee_val}</b>",
+                x=0.5, y=0.22,
+                showarrow=False,
+                xref="paper", yref="paper"
+            )
+            fig_gauge.add_annotation(
+                text="0",
+                x=0.18, y=0.08,
+                showarrow=False,
+                font=dict(size=11, color="#6c757d"),
+                xref="paper", yref="paper"
+            )
+            fig_gauge.add_annotation(
+                text="100",
+                x=0.82, y=0.08,
+                showarrow=False,
+                font=dict(size=11, color="#6c757d"),
+                xref="paper", yref="paper"
+            )
+            fig_gauge.update_layout(
+                title=dict(text="Total OEE", x=0.5, font=dict(size=16, color="#2b303a")),
+                margin=dict(l=10, r=10, t=35, b=10),
+                height=180,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_gauge, use_container_width=True, key="fig_marsh_gauge")
+
+    # Middle Column: Scrap Pie Chart
+    with col2:
+        with st.container(border=True):
+            fig_pie = go.Figure(data=[
+                go.Pie(
+                    labels=["Sum of Total Lbs.", "Sum of Scrap"],
+                    values=[37086, 8209],
+                    marker=dict(colors=[BLUE_BRIGHT, RED_COLOR]),
+                    hoverinfo="label+value+percent",
+                    textinfo="label+value+percent",
+                    textposition="outside",
+                    pull=[0, 0]
+                )
+            ])
+            fig_pie.update_layout(
+                title=dict(text="Scrap", x=0.5, font=dict(size=15, color="#2b303a")),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=-0.1,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=11, color="#495057")
+                ),
+                margin=dict(l=20, r=20, t=40, b=40),
+                height=410,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_pie, use_container_width=True, key="fig_marsh_pie")
+
+    # Right Column: Total Run Time Stacked Bar Chart
+    with col3:
+        with st.container(border=True):
+            times = ["Jul 06, 12AM", "Jul 06, 12PM", "Jul 07, 12AM"]
+            run_pct = [72, 0, 86]
+            lost_pct = [28, 0, 14]
+
+            fig_stacked = go.Figure()
+            fig_stacked.add_trace(go.Bar(
+                name="Total run time",
+                x=times,
+                y=run_pct,
+                marker_color=BLUE_BRIGHT,
+                hovertemplate="<b>%{x}</b><br>Run Time: %{y}%<extra></extra>"
+            ))
+            fig_stacked.add_trace(go.Bar(
+                name="Total lost time",
+                x=times,
+                y=lost_pct,
+                marker_color=RED_COLOR,
+                hovertemplate="<b>%{x}</b><br>Lost Time: %{y}%<extra></extra>"
+            ))
+
+            fig_stacked.update_layout(
+                barmode="stack",
+                title=dict(text="Total Run Time", x=0.5, font=dict(size=15, color="#2b303a")),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=11, color="#495057")
+                ),
+                xaxis=dict(title="Date", showgrid=False, tickfont=dict(size=10, color="#6c757d")),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor="#f0f2f5",
+                    range=[0, 100],
+                    ticksuffix="%",
+                    tickfont=dict(size=10, color="#6c757d")
+                ),
+                margin=dict(l=10, r=10, t=50, b=20),
+                height=410,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_stacked, use_container_width=True, key="fig_marsh_stacked")
 
 
 def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
