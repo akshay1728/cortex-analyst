@@ -47,79 +47,29 @@ def render_oee_dashboard(
 
 
 def _render_dash_header(title: str, subtitle: str, stats: List[dict], theme_color: str):
-    """Render standardized top header banner for all dashboards."""
+    """Render standardized top header banner for all dashboards without extra indentation."""
     stats_html = "".join([
-        f"""
-        <div class="dash-stat-item">
-            <div class="dash-stat-val">{s['val']:,}</div>
-            <div class="dash-stat-lbl">{s['lbl']}</div>
-        </div>
-        """
+        f'<div class="dash-stat-item"><div class="dash-stat-val">{s["val"]:,}</div><div class="dash-stat-lbl">{s["lbl"]}</div></div>'
         for s in stats
     ])
 
-    st.markdown(
-        f"""
-        <style>
-        .dash-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #ffffff;
-            padding: 14px 24px;
-            border-radius: 12px;
-            border: 1px solid #eef0f4;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.03);
-            margin-bottom: 18px;
-        }}
-        .dash-title-box {{
-            display: flex;
-            align-items: baseline;
-            gap: 16px;
-        }}
-        .dash-title {{
-            font-size: 2.8rem;
-            font-weight: 800;
-            color: {theme_color};
-            line-height: 1;
-            letter-spacing: -0.5px;
-        }}
-        .dash-subtitle {{
-            font-size: 1.05rem;
-            color: #2b303a;
-            font-weight: 500;
-        }}
-        .dash-stats-box {{
-            display: flex;
-            gap: 36px;
-        }}
-        .dash-stat-item {{
-            text-align: center;
-        }}
-        .dash-stat-val {{
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #1a1a1a;
-            line-height: 1;
-        }}
-        .dash-stat-lbl {{
-            font-size: 0.82rem;
-            color: #6c757d;
-            margin-top: 4px;
-        }}
-        </style>
-        <div class="dash-header">
-            <div class="dash-title-box">
-                <div class="dash-title">{html.escape(title)}</div>
-                <div class="dash-subtitle">{html.escape(subtitle)}</div>
-            </div>
-            <div class="dash-stats-box">
-                {stats_html}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    header_html = (
+        f'<style>'
+        f'.dash-header {{ display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 14px 24px; border-radius: 12px; border: 1px solid #eef0f4; box-shadow: 0 4px 14px rgba(0,0,0,0.03); margin-bottom: 18px; }}'
+        f'.dash-title-box {{ display: flex; align-items: baseline; gap: 16px; }}'
+        f'.dash-title {{ font-size: 2.8rem; font-weight: 800; color: {theme_color}; line-height: 1; letter-spacing: -0.5px; }}'
+        f'.dash-subtitle {{ font-size: 1.05rem; color: #2b303a; font-weight: 500; }}'
+        f'.dash-stats-box {{ display: flex; gap: 36px; }}'
+        f'.dash-stat-item {{ text-align: center; }}'
+        f'.dash-stat-val {{ font-size: 2.2rem; font-weight: 700; color: #1a1a1a; line-height: 1; }}'
+        f'.dash-stat-lbl {{ font-size: 0.82rem; color: #6c757d; margin-top: 4px; }}'
+        f'</style>'
+        f'<div class="dash-header">'
+        f'<div class="dash-title-box"><div class="dash-title">{html.escape(title)}</div><div class="dash-subtitle">{html.escape(subtitle)}</div></div>'
+        f'<div class="dash-stats-box">{stats_html}</div>'
+        f'</div>'
     )
+    st.markdown(header_html, unsafe_allow_html=True)
 
 
 def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
@@ -285,11 +235,11 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total Run Time", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
+                title=dict(text="Total Run Time", x=0.5, y=0.96, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
+                    yanchor="top",
+                    y=-0.22,
                     xanchor="center",
                     x=0.5,
                     font=dict(size=11, color="#495057", family=FONT_FAMILY)
@@ -302,7 +252,7 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
                     ticksuffix="%",
                     tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=75, b=20),
+                margin=dict(l=10, r=10, t=50, b=65),
                 height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
@@ -473,11 +423,11 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total shift run time and Total lost time", x=0.5, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
+                title=dict(text="Total shift run time and Total lost time", x=0.5, y=0.96, font=dict(size=14, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
+                    yanchor="top",
+                    y=-0.22,
                     xanchor="center",
                     x=0.5,
                     font=dict(size=11, color="#495057", family=FONT_FAMILY)
@@ -490,7 +440,7 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
                     ticksuffix="%",
                     tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=75, b=20),
+                margin=dict(l=10, r=10, t=50, b=65),
                 height=430,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
@@ -646,11 +596,11 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
 
             fig_stacked.update_layout(
                 barmode="stack",
-                title=dict(text="Total Run Time vs Lost Time", x=0.5, font=dict(size=16, color="#2b303a", family=FONT_FAMILY)),
+                title=dict(text="Total Run Time vs Lost Time", x=0.5, y=0.96, font=dict(size=15, color="#2b303a", family=FONT_FAMILY)),
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
+                    yanchor="top",
+                    y=-0.22,
                     xanchor="center",
                     x=0.5,
                     font=dict(size=11, color="#6c757d", family=FONT_FAMILY)
@@ -663,7 +613,7 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
                     ticksuffix="%",
                     tickfont=dict(size=10, color="#6c757d", family=FONT_FAMILY)
                 ),
-                margin=dict(l=10, r=10, t=75, b=20),
+                margin=dict(l=10, r=10, t=50, b=65),
                 height=410,
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)"
