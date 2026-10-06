@@ -291,13 +291,13 @@ def render_oee_dashboard(
 def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
     """Render Marshmallow dashboard."""
     display_line = line_name if line_name and line_name != "All Lines" else "Belt 1"
-    run_time = int(data.get("total_run_time_mins", 1227))
-    lost_time = int(data.get("total_lost_time_mins", 211))
-    scrap = int(data.get("scrap", 8209))
+    run_time = int(data.get("total_run_time_mins", 0))
+    lost_time = int(data.get("total_lost_time_mins", 0))
+    scrap = int(data.get("scrap", 0))
 
     _render_dash_header(
         title=display_line,
-        subtitle="Tuesday, July 07, 2026",
+        subtitle=None,
         stats=[
             {"val": run_time, "lbl": "Total run time (mins)", "tone": "primary"},
             {"val": lost_time, "lbl": "Total lost time (mins)", "tone": "danger"},
@@ -430,13 +430,13 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
 def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
     """Render Molded dashboard layout."""
     display_line = line_name if line_name and line_name != "All Lines" else "Molded Line"
-    run_time = int(data.get("total_run_time_mins", 633))
-    lost_time = int(data.get("total_lost_time_mins", 343))
-    pounds_sum = int(data.get("total_pounds_running_sum", 24905))
+    run_time = int(data.get("total_run_time_mins", 0))
+    lost_time = int(data.get("total_lost_time_mins", 0))
+    pounds_sum = int(data.get("total_pounds_running_sum", 0))
 
     _render_dash_header(
         title=display_line,
-        subtitle="Tuesday, July 07, 2026",
+        subtitle=None,
         stats=[
             {"val": run_time, "lbl": "Total run time (mins)", "tone": "primary"},
             {"val": lost_time, "lbl": "Total lost time (mins)", "tone": "danger"},
