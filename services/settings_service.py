@@ -183,7 +183,7 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
     """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES()."""
     session = get_snowflake_session()
     if session is None:
-        return ["All Lines", "Line 1", "Line 2", "Line 3"]
+        return ["Line 1", "Line 2", "Line 3"]
 
     if dashboard_name:
         esc_dash = dashboard_name.replace("'", "''")
@@ -195,7 +195,7 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
     try:
         df = session.sql(f"CALL {proc_call}({dash_arg})").to_pandas()
         if df is not None and not df.empty:
-            lines = ["All Lines"]
+            lines = []
             for _, row in df.iterrows():
                 line = _row_val(row, ["LINE_NAME", "line_name", "LINE"], positional_idx=0, default="")
                 if line and str(line).strip() and str(line).strip() not in lines:
@@ -276,6 +276,7 @@ def load_dashboard_metrics_from_db(
 
     try:
         df = session.sql(f"CALL {proc_call}({dash_arg}, {start_arg}, {end_arg}, {line_arg})").to_pandas()
+
         if df is not None and not df.empty:
             row = df.iloc[0]
             return {
