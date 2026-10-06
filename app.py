@@ -635,8 +635,9 @@ else:
     line_options = load_production_lines_from_db(selected_dashboard)
 
     with f_col2:
-        default_start = datetime.date(2023, 7, 6)
-        default_end = datetime.date(2023, 7, 7)
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        default_start = yesterday
+        default_end = yesterday
         date_selection = st.date_input(
             "Date Range",
             value=(default_start, default_end),
@@ -664,13 +665,17 @@ else:
             key="dash_line_select"
         )
 
-    # Render Selected Dashboard (e.g. Molded) with high quality Plotly interactive charts
-    render_oee_dashboard(
-        dashboard_name=selected_dashboard,
-        start_date=start_date_str,
-        end_date=end_date_str,
-        line_name=selected_line
-    )
+    # Render Selected Dashboard with high quality Plotly interactive charts
+    try:
+        render_oee_dashboard(
+            dashboard_name=selected_dashboard,
+            start_date=start_date_str,
+            end_date=end_date_str,
+            line_name=selected_line
+        )
+    except Exception as dash_err:
+        logger.error(f"Error rendering dashboard '{selected_dashboard}': {dash_err}", exc_info=True)
+        st.error(f"Unable to load dashboard data: {dash_err}")
 
     st.write("")
 

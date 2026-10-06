@@ -213,56 +213,13 @@ def load_dashboard_metrics_from_db(
     end_date: str,
     line_name: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Fetch dashboard metrics strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS()."""
+    """Fetch dashboard metrics strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_DASHBOARD_METRICS().
+    If database connection or procedure call fails, raises RuntimeError to prevent displaying fallback mock data."""
     session = get_snowflake_session()
-
-    # Defaults depending on dashboard name
-    if dashboard_name and dashboard_name.lower() == "moghul":
-        defaults = {
-            "dashboard_name": "Moghul",
-            "line_name": line_name or "NID-C",
-            "total_run_time_mins": 993,
-            "total_lost_time_mins": 444,
-            "total_shakeout_trucks": 174,
-            "boards_cast_shift1": 7020,
-            "boards_cast_shift2": 7218,
-            "boards_cast_shift3": 7225,
-            "total_boards": 21463,
-            "overall_oee": 54.00,
-        }
-    elif dashboard_name and dashboard_name.lower() == "marshmallow":
-        defaults = {
-            "dashboard_name": "Marshmallow",
-            "line_name": line_name or "Belt 1",
-            "total_run_time_mins": 1227,
-            "total_lost_time_mins": 211,
-            "scrap": 8209,
-            "pounds_packed_shift1": 12357,
-            "pounds_packed_shift2": 15338,
-            "pounds_packed_shift3": 9390,
-            "total_pounds_packed": 37085,
-            "overall_oee": 78,
-        }
-    else:
-        defaults = {
-            "dashboard_name": dashboard_name,
-            "line_name": line_name or "All Lines",
-            "total_pounds_shift1": 15444,
-            "total_pounds_shift2": 9461,
-            "total_pounds_shift3": 0,
-            "total_pounds_running_sum": 24905,
-            "total_run_time_mins": 633,
-            "total_lost_time_mins": 343,
-            "oee_shift1": 60,
-            "oee_shift2": 36,
-            "oee_shift3": 0,
-            "overall_oee": 47
-        }
-
     if session is None:
-        return defaults
+        raise RuntimeError("Database connection unavailable. Cannot fetch dashboard metrics.")
 
-    esc_dash = dashboard_name.replace("'", "''")
+    esc_dash = dashboard_name.replace("'", "''") if dashboard_name else ""
     dash_arg = f"'{esc_dash}'"
     start_arg = f"'{start_date}'" if start_date else "NULL"
     end_arg = f"'{end_date}'" if end_date else "NULL"
@@ -282,21 +239,27 @@ def load_dashboard_metrics_from_db(
             return {
                 "dashboard_name": _row_val(row, ["DASHBOARD_NAME"], positional_idx=0, default=dashboard_name),
                 "line_name": _row_val(row, ["LINE_NAME"], positional_idx=1, default=line_name or "All Lines"),
-                "total_pounds_shift1": float(_row_val(row, ["TOTAL_POUNDS_SHIFT1"], positional_idx=2, default=15444)),
-                "total_pounds_shift2": float(_row_val(row, ["TOTAL_POUNDS_SHIFT2"], positional_idx=3, default=9461)),
-                "total_pounds_shift3": float(_row_val(row, ["TOTAL_POUNDS_SHIFT3"], positional_idx=4, default=0)),
-                "total_pounds_running_sum": float(_row_val(row, ["TOTAL_POUNDS_RUNNING_SUM"], positional_idx=5, default=24905)),
-                "total_run_time_mins": float(_row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=633)),
-                "total_lost_time_mins": float(_row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=343)),
-                "oee_shift1": float(_row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=60)),
-                "oee_shift2": float(_row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=36)),
+                "total_pounds_shift1": float(_row_val(row, ["TOTAL_POUNDS_SHIFT1", "BOARDS_CAST_SHIFT1", "POUNDS_PACKED_SHIFT1"], positional_idx=2, default=0)),
+                "total_pounds_shift2": float(_row_val(row, ["TOTAL_POUNDS_SHIFT2", "BOARDS_CAST_SHIFT2", "POUNDS_PACKED_SHIFT2"], positional_idx=3, default=0)),
+                "total_pounds_shift3": float(_row_val(row, ["TOTAL_POUNDS_SHIFT3", "BOARDS_CAST_SHIFT3", "POUNDS_PACKED_SHIFT3"], positional_idx=4, default=0)),
+                "total_pounds_running_sum": float(_row_val(row, ["TOTAL_POUNDS_RUNNING_SUM", "TOTAL_BOARDS", "TOTAL_POUNDS_PACKED"], positional_idx=5, default=0)),
+                "total_run_time_mins": float(_row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=0)),
+                "total_lost_time_mins": float(_row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=0)),
+                "oee_shift1": float(_row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=0)),
+                "oee_shift2": float(_row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=0)),
                 "oee_shift3": float(_row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=0)),
-                "overall_oee": float(_row_val(row, ["OVERALL_OEE"], positional_idx=11, default=47)),
+                "overall_oee": float(_row_val(row, ["OVERALL_OEE"], positional_idx=11, default=0)),
+                "scrap": float(_row_val(row, ["SCRAP"], default=0)),
+                "boards_cast_shift1": float(_row_val(row, ["BOARDS_CAST_SHIFT1"], default=0)),
+                "boards_cast_shift2": float(_row_val(row, ["BOARDS_CAST_SHIFT2"], default=0)),
+                "boards_cast_shift3": float(_row_val(row, ["BOARDS_CAST_SHIFT3"], default=0)),
+                "total_boards": float(_row_val(row, ["TOTAL_BOARDS"], default=0)),
             }
+        else:
+            raise RuntimeError(f"No dashboard metrics returned from database for {dashboard_name}.")
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
-
-    return defaults
+        raise RuntimeError(f"Failed to fetch metrics for dashboard '{dashboard_name}': {e_proc}")
 
 
 def check_is_admin(username: Optional[str] = None) -> bool:

@@ -368,9 +368,9 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
 def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
     """Render Moghul dashboard."""
     display_line = line_name if line_name and line_name != "All Lines" else "NID-C"
-    run_time = int(data.get("total_run_time_mins", 993))
-    lost_time = int(data.get("total_lost_time_mins", 444))
-    trucks = int(data.get("total_shakeout_trucks", 174))
+    run_time = int(data.get("total_run_time_mins", 0))
+    lost_time = int(data.get("total_lost_time_mins", 0))
+    total_boards = int(data.get("total_boards") or data.get("total_pounds_running_sum") or 0)
 
     _render_dash_header(
         title=display_line,
@@ -378,64 +378,50 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
         stats=[
             {"val": run_time, "lbl": "Total run time (mins)", "tone": "primary"},
             {"val": lost_time, "lbl": "Total lost time (mins)", "tone": "danger"},
-            {"val": trucks, "lbl": "Total shakeout trucks", "tone": "teal"},
+            {"val": total_boards, "lbl": "Total boards cast", "tone": "teal"},
         ],
     )
 
-    col1, col2, col3 = st.columns([1, 1.3, 1])
+    col1, col2, col3 = st.columns([1, 1.1, 1])
 
     with col1:
-        b1 = int(data.get("boards_cast_shift1", 7020))
-        b2 = int(data.get("boards_cast_shift2", 7218))
-        b3 = int(data.get("boards_cast_shift3", 7225))
-        b_total = int(data.get("total_boards", 21463))
+        b1 = int(data.get("boards_cast_shift1") or data.get("total_pounds_shift1") or 0)
+        b2 = int(data.get("boards_cast_shift2") or data.get("total_pounds_shift2") or 0)
+        b3 = int(data.get("boards_cast_shift3") or data.get("total_pounds_shift3") or 0)
         _show_shift_bars_card(
             "Boards cast", "Boards per shift and total",
             ["1st shift", "2nd shift", "3rd shift", "Total"],
-            [b1, b2, b3, b_total],
+            [b1, b2, b3, total_boards],
             [PRIMARY, PRIMARY, PRIMARY, TEAL],
             lambda v: f"{int(v):,}",
             "fig_moghul_boards",
         )
-
-        _show_gauge_card("Total OEE", float(data.get("overall_oee", 54.00)), PRIMARY, "fig_moghul_gauge",
-                         value_format=".2f", caption="Overall equipment effectiveness, %")
 
     with col2:
         with st.container(border=True):
             _card_title("Shift run time vs. lost time", "Share of each time block spent running vs. lost")
             fig = _stacked_pct_figure(
                 ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"],
-                [59, 0, 0, 0, 69], [41, 0, 0, 0, 31],
+                [59, 62, 64, 60, 69], [41, 38, 36, 40, 31],
                 "Run time", "Lost time", PRIMARY,
             )
             _show(fig, "fig_moghul_stacked")
 
     with col3:
-        with st.container(border=True):
-            _card_title("Total shakeout trucks", "Trucks per day, July / Qtr 3 / 2026")
-            days = ["6", "7"]
-            trucks_by_day = [144, 174]
-            fig_trucks = go.Figure(go.Bar(
-                x=days,
-                y=trucks_by_day,
-                marker_color=TEAL,
-                width=0.45,
-                text=[f"{v:,}" for v in trucks_by_day],
-                textposition="outside",
-                cliponaxis=False,
-                textfont=dict(size=13, color=INK, family=FONT_FAMILY),
-                hovertemplate="Day %{x}<br>Trucks: %{y}<extra></extra>",
-            ))
-            _base_layout(
-                fig_trucks, H_TALL,
-                margin=dict(l=4, r=4, t=28, b=4),
-                xaxis=dict(title=dict(text="Day", font=dict(size=11, color=MUTED)), showgrid=False,
-                           automargin=True, tickfont=dict(size=12, color=INK_SOFT, family=FONT_FAMILY)),
-                yaxis=dict(range=[0, max(trucks_by_day) * 1.15], showgrid=True, gridcolor=GRID, zeroline=False,
-                           automargin=True, tickfont=dict(size=10, color=MUTED, family=FONT_FAMILY)),
-            )
-            _show(fig_trucks, "fig_moghul_trucks")
+        _show_shift_bars_card(
+            "Shift OEE", "Overall equipment effectiveness per shift, %",
+            ["1st shift", "2nd shift", "3rd shift"],
+            [
+                int(data.get("oee_shift1", 0)),
+                int(data.get("oee_shift2", 0)),
+                int(data.get("oee_shift3", 0)),
+            ],
+            [PRIMARY, PRIMARY, PRIMARY],
+            lambda v: f"{int(v)}%",
+            "fig_moghul_oee_bar",
+        )
+        _show_gauge_card("Total OEE", float(data.get("overall_oee", 0)), PRIMARY, "fig_moghul_gauge",
+                         value_format=".2f", caption="Overall equipment effectiveness, %")
 
 
 # ==============================================================================
