@@ -767,6 +767,13 @@ else:
 
             is_latest = (idx == latest_assistant_idx and st.session_state.active_prompt is None)
             with st.expander(_response_label(idx), expanded=is_latest):
+                # Display Question in bold inside the response block
+                if idx > 0 and st.session_state.messages[idx - 1]["role"] == "user":
+                    q_text = _get_display_str(st.session_state.messages[idx - 1]).strip()
+                    if q_text:
+                        st.markdown(f"**Question: {q_text}**")
+                        st.write("")
+
                 main_msg, suggestions_from_text = split_suggestions(disp_text)
                 clean_main_msg = deduplicate_paragraphs(main_msg)
                 if clean_main_msg:
@@ -826,6 +833,9 @@ else:
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
             preview = active_prompt.strip()[:60] + ("…" if len(active_prompt.strip()) > 60 else "")
             with st.expander(f"💬 {preview}", expanded=True):
+                st.markdown(f"**Question: {active_prompt.strip()}**")
+                st.write("")
+
                 status_placeholder = st.empty()
                 def update_cortex_status(msg: str):
                     status_placeholder.markdown(f"🤖 *{msg}*")

@@ -180,7 +180,7 @@ def load_dashboard_types_from_db() -> List[str]:
 
 
 def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[str]:
-    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES() sorted in ascending order."""
+    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES() sorted by Area1_id."""
     session = get_snowflake_session()
     if session is None:
         return ["All Lines", "Line 1", "Line 2", "Line 3"]
@@ -196,14 +196,17 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
         df = session.sql(f"CALL {proc_call}({dash_arg})").to_pandas()
         if df is not None and not df.empty:
             lines = []
+            if "AREA1_ID" in [c.upper() for c in df.columns]:
+                area_col = [c for c in df.columns if c.upper() == "AREA1_ID"][0]
+                df = df.sort_values(by=area_col, ascending=True)
+
             for _, row in df.iterrows():
                 line = _row_val(row, ["LINE_NAME", "line_name", "LINE"], positional_idx=0, default="")
                 if line and str(line).strip() and str(line).strip() not in lines:
                     lines.append(str(line).strip())
 
-            has_all_lines = "All Lines" in lines
-            other_lines = sorted([l for l in lines if l != "All Lines"])
-            return (["All Lines"] if has_all_lines else []) + other_lines
+            if lines:
+                return lines
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
 
