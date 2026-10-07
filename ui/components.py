@@ -96,7 +96,7 @@ H_TALL = 440
 _DASH_CSS = Template("""
 .dash-header { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center;
   justify-content: space-between; gap: 20px 40px; padding: 24px 28px 22px; margin-bottom: 18px; border-radius: 16px;
-  background: #fff; border: 1px solid $BORDER; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  background: #fff; border: 1px solid $BORDER; box-shadow: 0 6px 18px -4px rgba(15,23,42,0.08), 0 2px 6px -1px rgba(15,23,42,0.04); }
 .dash-header::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: $ACCENT_BAR; }
 .dash-title-wrap { flex: 1 1 260px; min-width: 0; }
 .dash-title { font-family: $FONT; font-size: clamp(1.5rem, 2.4vw, 2.1rem); font-weight: 700; line-height: 1.15;
@@ -111,7 +111,8 @@ _DASH_CSS = Template("""
   font-size: 0.82rem; line-height: 1.25; color: $INK_SOFT; }
 .dash-stat-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
 [data-testid="stVerticalBlockBorderWrapper"]:has(.dash-card-title) { border: 1px solid $BORDER; border-radius: 16px;
-  background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  background: #fff; box-shadow: 0 6px 18px -4px rgba(15,23,42,0.08), 0 2px 6px -1px rgba(15,23,42,0.04); transition: transform 0.18s ease, box-shadow 0.18s ease; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(.dash-card-title):hover { transform: translateY(-2px); box-shadow: 0 10px 24px -4px rgba(15,23,42,0.12), 0 4px 8px -2px rgba(15,23,42,0.06); }
 .dash-card-title { font-family: $FONT; font-size: 1rem; font-weight: 600; line-height: 1.3; color: $INK;
   overflow-wrap: anywhere; }
 .dash-card-caption { margin-top: 2px; font-family: $FONT; font-size: 0.8rem; line-height: 1.3; color: $MUTED; }
