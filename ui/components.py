@@ -1,6 +1,7 @@
 """UI Components for Manufacturing OEE Conversational Analytics App."""
 
 import html
+import datetime
 from string import Template
 
 import streamlit as st
@@ -13,6 +14,45 @@ from services.settings_service import (
     load_production_lines_from_db,
     load_dashboard_metrics_from_db
 )
+
+
+def _generate_date_series(start_date: str, end_date: str, num_points: int = 5) -> List[str]:
+    """Generate dynamic x-axis date/time labels matching the user's selected date range."""
+    try:
+        s_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        e_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        today = datetime.date.today()
+        s_dt = e_dt = today
+
+    days_diff = (e_dt - s_dt).days
+
+    if days_diff <= 0:
+        # Same single day selected -> show time checkpoints across the day
+        d_str = s_dt.strftime("%b %d")
+        return [
+            f"{d_str}, 12AM",
+            f"{d_str}, 6AM",
+            f"{d_str}, 12PM",
+            f"{d_str}, 6PM",
+            f"{d_str}, 11PM"
+        ]
+    elif days_diff <= num_points:
+        # Range of 2-5 days -> show each day explicitly
+        labels = []
+        curr = s_dt
+        while curr <= e_dt:
+            labels.append(curr.strftime("%b %d"))
+            curr += datetime.timedelta(days=1)
+        return labels
+    else:
+        # Longer date range -> evenly space num_points date labels
+        labels = []
+        step = days_diff / (num_points - 1)
+        for i in range(num_points):
+            curr_d = s_dt + datetime.timedelta(days=round(i * step))
+            labels.append(curr_d.strftime("%b %d"))
+        return labels
 
 # ==============================================================================
 # DESIGN TOKENS  (one theme shared by every dashboard - change colours here only)
@@ -274,21 +314,21 @@ def render_oee_dashboard(
 
     d_lower = (dashboard_name or "").strip().lower()
     if d_lower in ("moghul", "moguls"):
-        _render_moghul_dashboard(data, line_name)
+        _render_moghul_dashboard(data, line_name, start_date, end_date)
         return
 
     if d_lower == "marshmallow":
-        _render_marshmallow_dashboard(data, line_name)
+        _render_marshmallow_dashboard(data, line_name, start_date, end_date)
         return
 
     # Default / Molded Dashboard Layout
-    _render_molded_dashboard(data, line_name)
+    _render_molded_dashboard(data, line_name, start_date, end_date)
 
 
 # ==============================================================================
 # MARSHMALLOW
 # ==============================================================================
-def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
+def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str, start_date: str, end_date: str):
     """Render Marshmallow dashboard."""
     display_line = line_name if line_name and line_name != "All Lines" else "Belt 1"
     run_time = int(data.get("total_run_time_mins", 0))
@@ -321,7 +361,7 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
             lambda v: f"{int(v):,}",
             "fig_marsh_pounds",
         )
-        _show_gauge_card("Total OEE", int(data.get("overall_oee", 78)), PRIMARY, "fig_marsh_gauge",
+        _show_gauge_card("Total OEE", int(data.get("overall_oee", 0)), PRIMARY, "fig_marsh_gauge",
                          caption="Overall equipment effectiveness, %")
 
     with col2:
@@ -354,9 +394,13 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
     with col3:
         with st.container(border=True):
             _card_title("Total run time", "Share of each time block spent running vs. lost")
+            date_ticks = _generate_date_series(start_date, end_date, num_points=3)
+            tot_time = (run_time + lost_time) or 1
+            run_pct = round(run_time / tot_time * 100) if (run_time or lost_time) else 0
+            lost_pct = 100 - run_pct if (run_time or lost_time) else 0
             fig = _stacked_pct_figure(
-                ["Jul 06, 12AM", "Jul 06, 12PM", "Jul 07, 12AM"],
-                [72, 0, 86], [28, 0, 14],
+                date_ticks,
+                [run_pct] * len(date_ticks), [lost_pct] * len(date_ticks),
                 "Run time", "Lost time", PRIMARY,
             )
             _show(fig, "fig_marsh_stacked")
@@ -365,7 +409,7 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
 # ==============================================================================
 # MOGHUL
 # ==============================================================================
-def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
+def _render_moghul_dashboard(data: Dict[str, Any], line_name: str, start_date: str, end_date: str):
     """Render Moghul dashboard."""
     display_line = line_name if line_name and line_name != "All Lines" else "NID-C"
     run_time = int(data.get("total_run_time_mins", 0))
@@ -400,9 +444,13 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
     with col2:
         with st.container(border=True):
             _card_title("Shift run time vs. lost time", "Share of each time block spent running vs. lost")
+            date_ticks = _generate_date_series(start_date, end_date, num_points=5)
+            tot_time = (run_time + lost_time) or 1
+            run_pct = round(run_time / tot_time * 100) if (run_time or lost_time) else 0
+            lost_pct = 100 - run_pct if (run_time or lost_time) else 0
             fig = _stacked_pct_figure(
-                ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"],
-                [59, 62, 64, 60, 69], [41, 38, 36, 40, 31],
+                date_ticks,
+                [run_pct] * len(date_ticks), [lost_pct] * len(date_ticks),
                 "Run time", "Lost time", PRIMARY,
             )
             _show(fig, "fig_moghul_stacked")
@@ -427,7 +475,7 @@ def _render_moghul_dashboard(data: Dict[str, Any], line_name: str):
 # ==============================================================================
 # MOLDED (default)
 # ==============================================================================
-def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
+def _render_molded_dashboard(data: Dict[str, Any], line_name: str, start_date: str, end_date: str):
     """Render Molded dashboard layout."""
     display_line = line_name if line_name and line_name != "All Lines" else "Molded Line"
     run_time = int(data.get("total_run_time_mins", 0))
@@ -448,15 +496,13 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
 
     # Column 1: total pounds (bars + trend)
     with col1:
+        p1 = int(data.get("total_pounds_shift1", 0))
+        p2 = int(data.get("total_pounds_shift2", 0))
+        p3 = int(data.get("total_pounds_shift3", 0))
         _show_shift_bars_card(
             "Total pounds", "Pounds per shift and running sum",
             ["1st shift", "2nd shift", "3rd shift", "Running sum"],
-            [
-                data.get("total_pounds_shift1", 15444),
-                data.get("total_pounds_shift2", 9461),
-                data.get("total_pounds_shift3", 0),
-                data.get("total_pounds_running_sum", 24905),
-            ],
+            [p1, p2, p3, pounds_sum],
             [PRIMARY, PRIMARY, PRIMARY, TEAL],
             lambda v: f"{int(v):,}",
             "fig_pounds_bar_main",
@@ -464,9 +510,16 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
 
         with st.container(border=True):
             _card_title("Total pounds trend", "Cumulative pounds over time")
+            date_ticks = _generate_date_series(start_date, end_date, num_points=5)
+            # Create smooth cumulative progression up to total pounds_sum
+            if pounds_sum > 0:
+                step_vals = [round(pounds_sum * (i + 1) / len(date_ticks)) for i in range(len(date_ticks))]
+            else:
+                step_vals = [0] * len(date_ticks)
+
             df_area = pd.DataFrame({
-                "time": ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"],
-                "val": [5000, 7200, 15444, 22000, data.get("total_pounds_running_sum", 24905)]
+                "time": date_ticks,
+                "val": step_vals
             })
             fig_area = go.Figure(go.Scatter(
                 x=_two_line_ticks(df_area["time"]),
@@ -491,9 +544,13 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
     with col2:
         with st.container(border=True):
             _card_title("Total run time vs. lost time", "Share of each time block spent running vs. lost")
+            date_ticks = _generate_date_series(start_date, end_date, num_points=5)
+            tot_time = (run_time + lost_time) or 1
+            run_pct = round(run_time / tot_time * 100) if (run_time or lost_time) else 0
+            lost_pct = 100 - run_pct if (run_time or lost_time) else 0
             fig = _stacked_pct_figure(
-                ["Jul 06, 12AM", "Jul 06, 6AM", "Jul 06, 12PM", "Jul 06, 6PM", "Jul 07, 12AM"],
-                [62, 64, 64, 64, 62], [38, 36, 36, 36, 38],
+                date_ticks,
+                [run_pct] * len(date_ticks), [lost_pct] * len(date_ticks),
                 "Run time", "Lost time", PRIMARY,
             )
             _show(fig, "fig_stacked_main")
@@ -504,15 +561,15 @@ def _render_molded_dashboard(data: Dict[str, Any], line_name: str):
             "Shift OEE", "Overall equipment effectiveness per shift, %",
             ["1st shift", "2nd shift", "3rd shift"],
             [
-                int(data.get("oee_shift1", 60)),
-                int(data.get("oee_shift2", 36)),
+                int(data.get("oee_shift1", 0)),
+                int(data.get("oee_shift2", 0)),
                 int(data.get("oee_shift3", 0)),
             ],
             [PRIMARY, PRIMARY, PRIMARY],
             lambda v: f"{int(v)}%",
             "fig_oee_bar_main",
         )
-        _show_gauge_card("Total OEE", int(data.get("overall_oee", 47)), PRIMARY, "fig_oee_gauge_main",
+        _show_gauge_card("Total OEE", int(data.get("overall_oee", 0)), PRIMARY, "fig_oee_gauge_main",
                          caption="Overall equipment effectiveness, %")
 
 
