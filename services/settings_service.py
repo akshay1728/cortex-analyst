@@ -180,10 +180,10 @@ def load_dashboard_types_from_db() -> List[str]:
 
 
 def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[str]:
-    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES()."""
+    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES() sorted in ascending order."""
     session = get_snowflake_session()
     if session is None:
-        return ["Line 1", "Line 2", "Line 3"]
+        return ["All Lines", "Line 1", "Line 2", "Line 3"]
 
     if dashboard_name:
         esc_dash = dashboard_name.replace("'", "''")
@@ -200,7 +200,10 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
                 line = _row_val(row, ["LINE_NAME", "line_name", "LINE"], positional_idx=0, default="")
                 if line and str(line).strip() and str(line).strip() not in lines:
                     lines.append(str(line).strip())
-            return lines
+
+            has_all_lines = "All Lines" in lines
+            other_lines = sorted([l for l in lines if l != "All Lines"])
+            return (["All Lines"] if has_all_lines else []) + other_lines
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
 
