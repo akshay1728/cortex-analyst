@@ -632,7 +632,12 @@ else:
         )
 
     # Fetch Production Lines from Stored Procedure based on selected dashboard
-    line_options = load_production_lines_from_db(selected_dashboard)
+    try:
+        line_options = load_production_lines_from_db(selected_dashboard)
+    except Exception as line_err:
+        logger.error(f"Error fetching production lines for '{selected_dashboard}': {line_err}")
+        st.error(f"Unable to load production lines: {line_err}")
+        line_options = ["All Lines"]
 
     with f_col2:
         yesterday = datetime.date.today() - datetime.timedelta(days=1)

@@ -180,10 +180,11 @@ def load_dashboard_types_from_db() -> List[str]:
 
 
 def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[str]:
-    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES() sorted by Area1_id."""
+    """Fetch available production lines strictly via Snowflake DB procedure {DB}.{APP_SCHEMA}.SP_TRAKSYS_GET_PRODUCTION_LINES() sorted by AREA1_ID.
+    Raises RuntimeError if database is unavailable or procedure call fails."""
     session = get_snowflake_session()
     if session is None:
-        return ["All Lines", "Line 1", "Line 2", "Line 3"]
+        raise RuntimeError("Database connection unavailable. Cannot fetch production lines.")
 
     if dashboard_name:
         esc_dash = dashboard_name.replace("'", "''")
@@ -195,22 +196,31 @@ def load_production_lines_from_db(dashboard_name: Optional[str] = None) -> List[
     try:
         df = session.sql(f"CALL {proc_call}({dash_arg})").to_pandas()
         if df is not None and not df.empty:
-            lines = []
-            if "AREA1_ID" in [c.upper() for c in df.columns]:
-                area_col = [c for c in df.columns if c.upper() == "AREA1_ID"][0]
-                df = df.sort_values(by=area_col, ascending=True)
+            # Case-insensitive column resolution for AREA1_ID and LINE_NAME
+            col_map = {str(c).upper(): c for c in df.columns}
+            line_col = col_map.get("LINE_NAME") or df.columns[0]
+            area_col = col_map.get("AREA1_ID") or (df.columns[1] if len(df.columns) > 1 else None)
 
-            for _, row in df.iterrows():
-                line = _row_val(row, ["LINE_NAME", "line_name", "LINE"], positional_idx=0, default="")
-                if line and str(line).strip() and str(line).strip() not in lines:
-                    lines.append(str(line).strip())
+            if area_col:
+                df["_area1_sort_key"] = pd.to_numeric(df[area_col], errors="coerce").fillna(999999)
+                df = df.sort_values(by=["_area1_sort_key", line_col], ascending=[True, True])
+
+            lines = []
+            for val in df[line_col]:
+                if val is not None and str(val).strip() and str(val).strip() != "None":
+                    s_val = str(val).strip()
+                    if s_val not in lines:
+                        lines.append(s_val)
 
             if lines:
                 return lines
+            else:
+                raise RuntimeError("No valid production line names returned from database.")
+        else:
+            raise RuntimeError("No production lines returned from database.")
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
-
-    return ["All Lines", "Line 1", "Line 2", "Line 3"]
+        raise RuntimeError(f"Failed to fetch production lines: {e_proc}")
 
 
 def load_dashboard_metrics_from_db(
@@ -242,24 +252,38 @@ def load_dashboard_metrics_from_db(
 
         if df is not None and not df.empty:
             row = df.iloc[0]
+            val_shift1 = _row_val(row, ["TOTAL_POUNDS_SHIFT1", "BOARDS_CAST_SHIFT1", "POUNDS_PACKED_SHIFT1"], positional_idx=2, default=None)
+            val_shift2 = _row_val(row, ["TOTAL_POUNDS_SHIFT2", "BOARDS_CAST_SHIFT2", "POUNDS_PACKED_SHIFT2"], positional_idx=3, default=None)
+            val_shift3 = _row_val(row, ["TOTAL_POUNDS_SHIFT3", "BOARDS_CAST_SHIFT3", "POUNDS_PACKED_SHIFT3"], positional_idx=4, default=None)
+            val_total_prod = _row_val(row, ["TOTAL_POUNDS_RUNNING_SUM", "TOTAL_BOARDS", "TOTAL_POUNDS_PACKED"], positional_idx=5, default=None)
+            val_run_time = _row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=None)
+            val_lost_time = _row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=None)
+            val_oee_shift1 = _row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=None)
+            val_oee_shift2 = _row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=None)
+            val_oee_shift3 = _row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=None)
+            val_overall_oee = _row_val(row, ["OVERALL_OEE"], positional_idx=11, default=None)
+
+            if any(v is None for v in [val_run_time, val_lost_time, val_overall_oee]):
+                raise RuntimeError("Database query returned incomplete dashboard metric data.")
+
             return {
                 "dashboard_name": _row_val(row, ["DASHBOARD_NAME"], positional_idx=0, default=dashboard_name),
                 "line_name": _row_val(row, ["LINE_NAME"], positional_idx=1, default=line_name or "All Lines"),
-                "total_pounds_shift1": float(_row_val(row, ["TOTAL_POUNDS_SHIFT1", "BOARDS_CAST_SHIFT1", "POUNDS_PACKED_SHIFT1"], positional_idx=2, default=0)),
-                "total_pounds_shift2": float(_row_val(row, ["TOTAL_POUNDS_SHIFT2", "BOARDS_CAST_SHIFT2", "POUNDS_PACKED_SHIFT2"], positional_idx=3, default=0)),
-                "total_pounds_shift3": float(_row_val(row, ["TOTAL_POUNDS_SHIFT3", "BOARDS_CAST_SHIFT3", "POUNDS_PACKED_SHIFT3"], positional_idx=4, default=0)),
-                "total_pounds_running_sum": float(_row_val(row, ["TOTAL_POUNDS_RUNNING_SUM", "TOTAL_BOARDS", "TOTAL_POUNDS_PACKED"], positional_idx=5, default=0)),
-                "total_run_time_mins": float(_row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=0)),
-                "total_lost_time_mins": float(_row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=0)),
-                "oee_shift1": float(_row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=0)),
-                "oee_shift2": float(_row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=0)),
-                "oee_shift3": float(_row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=0)),
-                "overall_oee": float(_row_val(row, ["OVERALL_OEE"], positional_idx=11, default=0)),
-                "scrap": float(_row_val(row, ["SCRAP"], default=0)),
-                "boards_cast_shift1": float(_row_val(row, ["BOARDS_CAST_SHIFT1"], default=0)),
-                "boards_cast_shift2": float(_row_val(row, ["BOARDS_CAST_SHIFT2"], default=0)),
-                "boards_cast_shift3": float(_row_val(row, ["BOARDS_CAST_SHIFT3"], default=0)),
-                "total_boards": float(_row_val(row, ["TOTAL_BOARDS"], default=0)),
+                "total_pounds_shift1": float(val_shift1 or 0),
+                "total_pounds_shift2": float(val_shift2 or 0),
+                "total_pounds_shift3": float(val_shift3 or 0),
+                "total_pounds_running_sum": float(val_total_prod or 0),
+                "total_run_time_mins": float(val_run_time),
+                "total_lost_time_mins": float(val_lost_time),
+                "oee_shift1": float(val_oee_shift1 or 0),
+                "oee_shift2": float(val_oee_shift2 or 0),
+                "oee_shift3": float(val_oee_shift3 or 0),
+                "overall_oee": float(val_overall_oee),
+                "scrap": float(_row_val(row, ["SCRAP"], default=0) or 0),
+                "boards_cast_shift1": float(_row_val(row, ["BOARDS_CAST_SHIFT1"], default=0) or val_shift1 or 0),
+                "boards_cast_shift2": float(_row_val(row, ["BOARDS_CAST_SHIFT2"], default=0) or val_shift2 or 0),
+                "boards_cast_shift3": float(_row_val(row, ["BOARDS_CAST_SHIFT3"], default=0) or val_shift3 or 0),
+                "total_boards": float(_row_val(row, ["TOTAL_BOARDS"], default=0) or val_total_prod or 0),
             }
         else:
             raise RuntimeError(f"No dashboard metrics returned from database for {dashboard_name}.")
