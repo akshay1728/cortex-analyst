@@ -252,19 +252,16 @@ def load_dashboard_metrics_from_db(
 
         if df is not None and not df.empty:
             row = df.iloc[0]
-            val_shift1 = _row_val(row, ["TOTAL_POUNDS_SHIFT1", "BOARDS_CAST_SHIFT1", "POUNDS_PACKED_SHIFT1"], positional_idx=2, default=None)
-            val_shift2 = _row_val(row, ["TOTAL_POUNDS_SHIFT2", "BOARDS_CAST_SHIFT2", "POUNDS_PACKED_SHIFT2"], positional_idx=3, default=None)
-            val_shift3 = _row_val(row, ["TOTAL_POUNDS_SHIFT3", "BOARDS_CAST_SHIFT3", "POUNDS_PACKED_SHIFT3"], positional_idx=4, default=None)
-            val_total_prod = _row_val(row, ["TOTAL_POUNDS_RUNNING_SUM", "TOTAL_BOARDS", "TOTAL_POUNDS_PACKED"], positional_idx=5, default=None)
-            val_run_time = _row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=None)
-            val_lost_time = _row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=None)
-            val_oee_shift1 = _row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=None)
-            val_oee_shift2 = _row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=None)
-            val_oee_shift3 = _row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=None)
-            val_overall_oee = _row_val(row, ["OVERALL_OEE"], positional_idx=11, default=None)
-
-            if any(v is None for v in [val_run_time, val_lost_time, val_overall_oee]):
-                raise RuntimeError("Database query returned incomplete dashboard metric data.")
+            val_shift1 = _row_val(row, ["TOTAL_POUNDS_SHIFT1", "BOARDS_CAST_SHIFT1", "POUNDS_PACKED_SHIFT1"], positional_idx=2, default=0)
+            val_shift2 = _row_val(row, ["TOTAL_POUNDS_SHIFT2", "BOARDS_CAST_SHIFT2", "POUNDS_PACKED_SHIFT2"], positional_idx=3, default=0)
+            val_shift3 = _row_val(row, ["TOTAL_POUNDS_SHIFT3", "BOARDS_CAST_SHIFT3", "POUNDS_PACKED_SHIFT3"], positional_idx=4, default=0)
+            val_total_prod = _row_val(row, ["TOTAL_POUNDS_RUNNING_SUM", "TOTAL_BOARDS", "TOTAL_POUNDS_PACKED"], positional_idx=5, default=0)
+            val_run_time = _row_val(row, ["TOTAL_RUN_TIME_MINS"], positional_idx=6, default=0)
+            val_lost_time = _row_val(row, ["TOTAL_LOST_TIME_MINS"], positional_idx=7, default=0)
+            val_oee_shift1 = _row_val(row, ["OEE_SHIFT1"], positional_idx=8, default=0)
+            val_oee_shift2 = _row_val(row, ["OEE_SHIFT2"], positional_idx=9, default=0)
+            val_oee_shift3 = _row_val(row, ["OEE_SHIFT3"], positional_idx=10, default=0)
+            val_overall_oee = _row_val(row, ["OVERALL_OEE"], positional_idx=11, default=0)
 
             return {
                 "dashboard_name": _row_val(row, ["DASHBOARD_NAME"], positional_idx=0, default=dashboard_name),
@@ -273,12 +270,12 @@ def load_dashboard_metrics_from_db(
                 "total_pounds_shift2": float(val_shift2 or 0),
                 "total_pounds_shift3": float(val_shift3 or 0),
                 "total_pounds_running_sum": float(val_total_prod or 0),
-                "total_run_time_mins": float(val_run_time),
-                "total_lost_time_mins": float(val_lost_time),
+                "total_run_time_mins": float(val_run_time or 0),
+                "total_lost_time_mins": float(val_lost_time or 0),
                 "oee_shift1": float(val_oee_shift1 or 0),
                 "oee_shift2": float(val_oee_shift2 or 0),
                 "oee_shift3": float(val_oee_shift3 or 0),
-                "overall_oee": float(val_overall_oee),
+                "overall_oee": float(val_overall_oee or 0),
                 "scrap": float(_row_val(row, ["SCRAP"], default=0) or 0),
                 "boards_cast_shift1": float(_row_val(row, ["BOARDS_CAST_SHIFT1"], default=0) or val_shift1 or 0),
                 "boards_cast_shift2": float(_row_val(row, ["BOARDS_CAST_SHIFT2"], default=0) or val_shift2 or 0),
@@ -286,7 +283,27 @@ def load_dashboard_metrics_from_db(
                 "total_boards": float(_row_val(row, ["TOTAL_BOARDS"], default=0) or val_total_prod or 0),
             }
         else:
-            raise RuntimeError(f"No dashboard metrics returned from database for {dashboard_name}.")
+            # Procedure executed successfully but returned 0 rows -> return zeroed metrics (empty state)
+            logger.info(f"Procedure returned 0 rows for dashboard '{dashboard_name}'. Rendering zeroed empty state.")
+            return {
+                "dashboard_name": dashboard_name,
+                "line_name": line_name or "All Lines",
+                "total_pounds_shift1": 0.0,
+                "total_pounds_shift2": 0.0,
+                "total_pounds_shift3": 0.0,
+                "total_pounds_running_sum": 0.0,
+                "total_run_time_mins": 0.0,
+                "total_lost_time_mins": 0.0,
+                "oee_shift1": 0.0,
+                "oee_shift2": 0.0,
+                "oee_shift3": 0.0,
+                "overall_oee": 0.0,
+                "scrap": 0.0,
+                "boards_cast_shift1": 0.0,
+                "boards_cast_shift2": 0.0,
+                "boards_cast_shift3": 0.0,
+                "total_boards": 0.0,
+            }
     except Exception as e_proc:
         logger.error(f"Failed to call procedure {proc_call}: {e_proc}")
         raise RuntimeError(f"Failed to fetch metrics for dashboard '{dashboard_name}': {e_proc}")
