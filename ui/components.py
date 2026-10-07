@@ -308,10 +308,10 @@ def _render_marshmallow_dashboard(data: Dict[str, Any], line_name: str):
     col1, col2, col3 = st.columns([1, 1.2, 1])
 
     with col1:
-        p1 = int(data.get("pounds_packed_shift1", 12357))
-        p2 = int(data.get("pounds_packed_shift2", 15338))
-        p3 = int(data.get("pounds_packed_shift3", 9390))
-        p_total = int(data.get("total_pounds_packed", 37085))
+        p1 = int(data.get("total_pounds_shift1", 0))
+        p2 = int(data.get("total_pounds_shift2", 0))
+        p3 = int(data.get("total_pounds_shift3", 0))
+        p_total = int(data.get("total_pounds_running_sum", 0))
 
         _show_shift_bars_card(
             "Pounds packed by shift", "Pounds per shift and total",
