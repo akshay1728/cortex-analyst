@@ -528,13 +528,14 @@ def render_sample_questions(on_click_callback):
         st.info("No suggested questions are set up yet. Add some on the Settings page.")
         return
 
-    col_count = min(len(sample_questions), 3)
-    cols = st.columns(col_count)
+    # Dynamically allocate column widths based on question length to prevent large gaps
+    num_qs = len(sample_questions)
+    cols = st.columns(num_qs)
     for idx, q in enumerate(sample_questions):
-        cols[idx % col_count].button(
+        cols[idx].button(
             q,
             key=f"sq_{idx}",
-            use_container_width=False,
+            use_container_width=True,
             on_click=on_click_callback,
             args=(q,)
         )
