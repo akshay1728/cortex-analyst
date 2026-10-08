@@ -20,7 +20,7 @@ from config import APP_TITLE, APP_ICON, DB, ANALYTICS_SCHEMA
 from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
 from services.pdf_generator import generate_conversation_pdf
-from ui.components import render_oee_dashboard, render_sample_questions, style_dataframe_metrics
+from ui.components import render_sidebar_filters, render_oee_dashboard, render_sample_questions, style_dataframe_metrics
 from ui.settings_page import render_settings_page
 from services.settings_service import (
     load_app_settings_from_db,
@@ -64,28 +64,26 @@ df_raw = load_dataset()
 st.title(f"{APP_ICON} {APP_TITLE}")
 st.caption("Ask natural language questions about plant performance, equipment availability, line productivity, and downtime root causes.")
 
-# Sidebar Filters & Developer Mode
+# Sidebar Filters
 filters = render_sidebar_filters(df_raw)
-
-st.sidebar.divider()
-st.sidebar.subheader("🎯 OEE Target Benchmarks")
-target_oee = st.sidebar.number_input("Target OEE (%)", min_value=0.0, max_value=100.0, value=85.0, step=1.0)
-target_avail = st.sidebar.number_input("Target Availability (%)", min_value=0.0, max_value=100.0, value=90.0, step=1.0)
-target_perf = st.sidebar.number_input("Target Performance (%)", min_value=0.0, max_value=100.0, value=95.0, step=1.0)
-target_qual = st.sidebar.number_input("Target Quality (%)", min_value=0.0, max_value=100.0, value=99.0, step=1.0)
-
-    # Filter Controls
-    f_col1, f_col2, f_col3 = st.columns([1, 1.2, 1])
 
 st.sidebar.divider()
 debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)
 
-# Filter Dataset according to global sidebar controls
-df_filtered = analyst_service._apply_filters(df_raw, filters)
+# Render OEE Dashboard Section above Chat Interface
+dash_type = st.session_state.get("settings_dashboard_type", "Molded Line")
+date_range = filters.get("date_range")
+if date_range and isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+    start_d_str = str(date_range[0])
+    end_d_str = str(date_range[1])
+else:
+    start_d_str = str(datetime.date.today() - datetime.timedelta(days=1))
+    end_d_str = str(datetime.date.today() - datetime.timedelta(days=1))
 
-# Global KPI Cards
-kpis = calculate_aggregated_oee(df_filtered)
-render_kpi_cards(kpis, targets)
+selected_lines = filters.get("lines", ["All"])
+line_name = selected_lines[0] if selected_lines else "All"
+
+render_oee_dashboard(dash_type, start_d_str, end_d_str, line_name)
 
 st.divider()
 
