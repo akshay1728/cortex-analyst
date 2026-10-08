@@ -6,149 +6,44 @@ from string import Template
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from typing import Dict, Any, List, Optional
-from services.settings_service import (
-    load_dashboard_types_from_db,
-    load_production_lines_from_db,
-    load_dashboard_metrics_from_db
-)
+from typing import Dict, Any, List
+from data.sample_data import calculate_aggregated_oee
 
+def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
+    """Render sidebar filters and return user selected options."""
+    st.sidebar.header("🔍 OEE Global Filters")
 
-def _generate_date_series(start_date: str, end_date: str, num_points: int = 5) -> List[str]:
-    """Generate dynamic x-axis date/time labels matching the user's selected date range."""
-    try:
-        s_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-        e_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-    except (ValueError, TypeError):
-        today = datetime.date.today()
-        s_dt = e_dt = today
+    # Date Range Filter
+    min_date = df["date"].min().date()
+    max_date = df["date"].max().date()
 
-    days_diff = (e_dt - s_dt).days
-
-    if days_diff <= 0:
-        # Same single day selected -> show time checkpoints across the day
-        d_str = s_dt.strftime("%b %d")
-        return [
-            f"{d_str}, 12AM",
-            f"{d_str}, 6AM",
-            f"{d_str}, 12PM",
-            f"{d_str}, 6PM",
-            f"{d_str}, 11PM"
-        ]
-    elif days_diff <= num_points:
-        # Range of 2-5 days -> show each day explicitly
-        labels = []
-        curr = s_dt
-        while curr <= e_dt:
-            labels.append(curr.strftime("%b %d"))
-            curr += datetime.timedelta(days=1)
-        return labels
-    else:
-        # Longer date range -> evenly space num_points date labels
-        labels = []
-        step = days_diff / (num_points - 1)
-        for i in range(num_points):
-            curr_d = s_dt + datetime.timedelta(days=round(i * step))
-            labels.append(curr_d.strftime("%b %d"))
-        return labels
-
-# ==============================================================================
-# DESIGN TOKENS  (one theme shared by every dashboard - change colours here only)
-# ==============================================================================
-FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-
-# Neutrals
-INK = "#0F172A"          # headings, big numbers
-INK_SOFT = "#475569"     # body / axis labels
-MUTED = "#94A3B8"        # captions, tick labels
-GRID = "#EEF2F6"         # gridlines
-TRACK = "#E7ECF3"       # empty part of gauges
-BORDER = "#E3E8EF"       # card borders
-BRAND_DEEP = "#2F2B73"   # deep indigo (matches sidebar active button) - header title
-ACCENT_BAR = "linear-gradient(90deg, #E8913A 0%, #C4568F 50%, #4F46E5 100%)"  # echoes the logo underline
-
-# Semantic data colours
-PRIMARY = "#4F46E5"      # production / run time / shift values
-TEAL = "#0EA5A4"         # totals & running sums
-ROSE = "#E11D48"         # lost time & scrap
-
-# Backwards-compatible aliases (other modules may still import the old names)
-PURPLE_COLOR = PRIMARY
-GREEN_COLOR = TEAL
-SLATE_COLOR = INK_SOFT
-OLIVE_COLOR = PRIMARY
-RED_COLOR = ROSE
-BLUE_BRIGHT = PRIMARY
-
-_TONES = {"primary": PRIMARY, "teal": TEAL, "danger": ROSE}
-
-# Chart heights (tuned so the tall middle card lines up with the two stacked cards)
-H_BARS = 190
-H_GAUGE = 190
-H_TALL = 440
-
-
-# ==============================================================================
-# SHARED STYLING / HELPERS
-# ==============================================================================
-_DASH_CSS = Template("""
-.dash-header { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center;
-  justify-content: space-between; gap: 20px 40px; padding: 24px 28px 22px; margin-bottom: 18px; border-radius: 16px;
-  background: #fff; border: 1px solid $BORDER; box-shadow: 0 6px 18px -4px rgba(15,23,42,0.08), 0 2px 6px -1px rgba(15,23,42,0.04); }
-.dash-header::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: $ACCENT_BAR; }
-.dash-title-wrap { flex: 1 1 260px; min-width: 0; }
-.dash-title { font-family: $FONT; font-size: clamp(1.5rem, 2.4vw, 2.1rem); font-weight: 700; line-height: 1.15;
-  letter-spacing: -0.02em; color: $BRAND_DEEP; overflow-wrap: anywhere; }
-.dash-subtitle { margin-top: 6px; font-family: $FONT; font-size: 0.95rem; color: $INK_SOFT; }
-.dash-stats-box { display: flex; flex-wrap: wrap; gap: 18px 0; }
-.dash-stat-item { padding: 0 28px; border-left: 1px solid $BORDER; min-width: 120px; }
-.dash-stat-item:first-child { padding-left: 0; border-left: none; }
-.dash-stat-val { font-family: $FONT; font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: $INK;
-  font-variant-numeric: tabular-nums; }
-.dash-stat-lbl { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-family: $FONT;
-  font-size: 0.82rem; line-height: 1.25; color: $INK_SOFT; }
-.dash-stat-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.dash-card-title) { border: 1px solid $BORDER; border-radius: 16px;
-  background: #fff; box-shadow: 0 6px 18px -4px rgba(15,23,42,0.08), 0 2px 6px -1px rgba(15,23,42,0.04); transition: transform 0.18s ease, box-shadow 0.18s ease; }
-[data-testid="stVerticalBlockBorderWrapper"]:has(.dash-card-title):hover { transform: translateY(-2px); box-shadow: 0 10px 24px -4px rgba(15,23,42,0.12), 0 4px 8px -2px rgba(15,23,42,0.06); }
-.dash-card-title { font-family: $FONT; font-size: 1rem; font-weight: 600; line-height: 1.3; color: $INK;
-  overflow-wrap: anywhere; }
-.dash-card-caption { margin-top: 2px; font-family: $FONT; font-size: 0.8rem; line-height: 1.3; color: $MUTED; }
-.shift-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
-.shift-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.shift-lbl { font-family: $FONT; font-size: 0.92rem; color: $INK_SOFT; }
-.shift-val { min-width: 110px; padding: 8px 16px; border-radius: 10px; background: #EEF0FF; color: $PRIMARY;
-  font-family: $FONT; font-size: 1.15rem; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
-.shift-total { margin-top: 6px; padding: 14px 16px; border-radius: 12px; background: $TEAL; color: #fff;
-  text-align: center; font-family: $FONT; }
-.shift-total-lbl { font-size: 0.82rem; opacity: 0.9; }
-.shift-total-val { font-size: 1.6rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
-""")
-
-
-def _inject_dashboard_css():
-    """Inject the shared dashboard CSS once per render (collapsed to one line so markdown can't misread it)."""
-    css = _DASH_CSS.substitute(
-        FONT=FONT_FAMILY, INK=INK, INK_SOFT=INK_SOFT, MUTED=MUTED, BORDER=BORDER,
-        BRAND_DEEP=BRAND_DEEP, ACCENT_BAR=ACCENT_BAR, PRIMARY=PRIMARY, TEAL=TEAL
+    date_range = st.sidebar.date_input(
+        "Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
     )
     css = " ".join(line.strip() for line in css.splitlines() if line.strip())
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
+    # Plant Filter
+    available_plants = ["All"] + sorted(list(df["plant"].unique()))
+    selected_plants = st.sidebar.multiselect("Select Plant(s)", options=available_plants, default=["All"])
 
-def _rgba(hex_color: str, alpha: float) -> str:
-    h = hex_color.lstrip("#")
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r},{g},{b},{alpha})"
+    # Line Filter
+    available_lines = ["All"] + sorted(list(df["line"].unique()))
+    selected_lines = st.sidebar.multiselect("Select Line(s)", options=available_lines, default=["All"])
 
+    # Shift Filter
+    available_shifts = ["All"] + sorted(list(df["shift"].unique()))
+    selected_shifts = st.sidebar.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
 
-def _fmt_stat(val) -> str:
-    try:
-        return f"{val:,}"
-    except (TypeError, ValueError):
-        return html.escape(str(val))
+    # Product Family Filter
+    available_families = ["All"] + sorted(list(df["product_family"].unique()))
+    selected_families = st.sidebar.multiselect("Product Family", options=available_families, default=["All"])
+
+    st.sidebar.divider()
+    st.sidebar.caption("⚡ Powered by Snowflake Cortex Analyst & AI")
 
 
 def _render_dash_header(title: str, subtitle: Optional[str], stats: List[dict]):

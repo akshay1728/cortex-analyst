@@ -5,10 +5,28 @@ Supports automatic environment detection for:
 2. Graceful fallback when running in standalone offline mode.
 """
 
+import os
 from typing import Optional, Any
 import logging
 
 logger = logging.getLogger("snowflake_connection")
+
+def get_snowflake_token() -> Optional[str]:
+    """Reads the local OAuth token embedded in the Snowflake Container Runtime if available.
+
+    Path: /snowflake/session/token
+    """
+    token_path = "/snowflake/session/token"
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, "r") as f:
+                token = f.read().strip()
+                if token:
+                    logger.info("Found active Snowflake Container Native OAuth Token at %s", token_path)
+                    return token
+        except Exception as err:
+            logger.warning("Error reading container OAuth token at %s: %s", token_path, err)
+    return None
 
 def get_snowflake_session() -> Optional[Any]:
     """Retrieve an active Snowpark session in Snowflake Runtime environment.

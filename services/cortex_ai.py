@@ -4,16 +4,21 @@ Integrates Snowflake Cortex AI (`SNOWFLAKE.CORTEX.COMPLETE` / `cortex.complete`)
 1. Formulates LLM system prompt asking Cortex AI to analyze user question + query data schema/summary.
 2. Dynamically loads supported chart types from `config.SUPPORTED_CHART_TYPES`.
 3. Dumps 1 sample data record in prompt for context efficiency.
-4. Invokes Snowflake Cortex AI `cortex.complete('mistral-large', prompt)` or SQL `SNOWFLAKE.CORTEX.COMPLETE(...)`.
-5. Parses JSON visualization specification returned by Cortex AI model.
-6. Provides robust fallback heuristic decision engine when offline or no Snowflake session is present.
+4. Supports Snowflake Container Runtime Native OAuth Token (/snowflake/session/token) & SSE streaming.
+5. Invokes Snowflake Cortex AI `cortex.complete('mistral-large', prompt)` or SQL `SNOWFLAKE.CORTEX.COMPLETE(...)`.
+6. Parses JSON visualization specification returned by Cortex AI model.
+7. Provides robust fallback heuristic decision engine when offline or no Snowflake session is present.
 """
 
 import json
 import os
+import logging
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Generator
 from config import SUPPORTED_CHART_TYPES
+from services.snowflake_connection import get_snowflake_token
+
+logger = logging.getLogger("cortex_ai")
 
 class CortexAIService:
     def __init__(self, session=None, model_name: str = "mistral-large"):
@@ -35,6 +40,54 @@ class CortexAIService:
                 res = self.session.sql(sql).collect()
                 return res[0]["RESPONSE"] if res else ""
         return ""
+
+    def stream_cortex_agent(self, prompt: str) -> Generator[str, None, None]:
+        """Streams responses from Snowflake Cortex Agent endpoint using Container OAuth Token & SSE."""
+        token = get_snowflake_token()
+        host = os.environ.get("SNOWFLAKE_HOST", "localhost")
+
+        if not token:
+            logger.info("Container OAuth token not present. Falling back to local/standard execution.")
+            return
+
+        url = f"https://{host}/api/v2/cortex/agent/message"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream"
+        }
+        payload = {
+            "model": "snowflake-cortex-agent",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+        }
+
+        try:
+            import requests
+            with requests.post(url, headers=headers, json=payload, stream=True, timeout=60.0) as resp:
+                for line in resp.iter_lines():
+                    if line:
+                        decoded_line = line.decode("utf-8").strip()
+                        if decoded_line.startswith("data:"):
+                            data_content = decoded_line[5:].strip()
+                            if data_content == "[DONE]":
+                                break
+                            yield data_content
+        except Exception as err:
+            logger.warning("Error in stream_cortex_agent SSE: %s", err)
+
+    def ui_stream_generator(self, prompt: str, callback_metadata=None) -> Generator[str, None, None]:
+        """Decouples text content from heavy metadata chunks for Streamlit st.write_stream."""
+        for chunk in self.stream_cortex_agent(prompt):
+            try:
+                chunk_json = json.loads(chunk)
+                if "choices" in chunk_json:
+                    delta = chunk_json["choices"][0].get("delta", {})
+                    if "content" in delta:
+                        yield delta["content"]
+                if "tool_results" in chunk_json and callback_metadata is not None:
+                    callback_metadata.append(chunk_json["tool_results"])
+            except json.JSONDecodeError:
+                continue
 
     def decide_visualization(self, question: str, analyst_response: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze intent and query data via Cortex AI COMPLETE to generate structured visualization spec."""
