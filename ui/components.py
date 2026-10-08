@@ -2,20 +2,149 @@
 
 import html
 import datetime
-from string import Template
+from typing import Dict, Any, List, Optional
 
 import streamlit as st
 import pandas as pd
-from typing import Dict, Any, List
-from data.sample_data import calculate_aggregated_oee
+import plotly.graph_objects as go
+
+from services.settings_service import load_dashboard_metrics_from_db
+
+# Design Tokens
+PRIMARY = "#242B6B"
+TEAL = "#00A896"
+ROSE = "#E15241"
+INK = "#0F172A"
+INK_SOFT = "#475569"
+MUTED = "#64748B"
+BORDER = "#E2E8F0"
+TRACK = "#F1F5F9"
+GRID = "#F1F5F9"
+FONT_FAMILY = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+H_GAUGE = 220
+H_TALL = 340
+H_BARS = 220
+
+_TONES = {
+    "primary": PRIMARY,
+    "teal": TEAL,
+    "danger": ROSE,
+}
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    """Convert hex color (e.g. #242B6B) to rgba string."""
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def _fmt_stat(val: Any) -> str:
+    if isinstance(val, (int, float)):
+        return f"{val:,}"
+    return str(val)
+
+
+def _inject_dashboard_css():
+    """Inject CSS for dashboard card containers, headers, and stat cards."""
+    st.markdown(
+        f"""
+        <style>
+        .dash-header {{
+            background: #ffffff;
+            border: 1px solid {BORDER};
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            box-shadow: 0 6px 18px -4px rgba(15,23,42,0.08), 0 2px 6px -1px rgba(15,23,42,0.04);
+        }}
+        .dash-title-wrap {{
+            flex: 1;
+            min-width: 240px;
+        }}
+        .dash-title {{
+            font-family: {FONT_FAMILY};
+            font-size: 24px;
+            font-weight: 700;
+            color: {INK};
+            line-height: 1.2;
+        }}
+        .dash-subtitle {{
+            font-family: {FONT_FAMILY};
+            font-size: 13px;
+            color: {MUTED};
+            margin-top: 4px;
+        }}
+        .dash-stats-box {{
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }}
+        .dash-stat-item {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }}
+        .dash-stat-val {{
+            font-family: {FONT_FAMILY};
+            font-size: 22px;
+            font-weight: 700;
+            color: {INK};
+            line-height: 1;
+        }}
+        .dash-stat-lbl {{
+            font-family: {FONT_FAMILY};
+            font-size: 12px;
+            color: {MUTED};
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .dash-stat-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }}
+        .dash-card-title {{
+            font-family: {FONT_FAMILY};
+            font-size: 15px;
+            font-weight: 600;
+            color: {INK};
+            margin-bottom: 2px;
+        }}
+        .dash-card-caption {{
+            font-family: {FONT_FAMILY};
+            font-size: 12px;
+            color: {MUTED};
+            margin-bottom: 12px;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
     """Render sidebar filters and return user selected options."""
     st.sidebar.header("🔍 OEE Global Filters")
 
-    # Date Range Filter
-    min_date = df["date"].min().date()
-    max_date = df["date"].max().date()
+    if df is not None and not df.empty and "date" in df.columns:
+        min_date = df["date"].min().date()
+        max_date = df["date"].max().date()
+    else:
+        max_date = datetime.date.today()
+        min_date = max_date - datetime.timedelta(days=30)
 
     date_range = st.sidebar.date_input(
         "Date Range",
@@ -23,27 +152,61 @@ def render_sidebar_filters(df: pd.DataFrame) -> Dict[str, Any]:
         min_value=min_date,
         max_value=max_date
     )
-    css = " ".join(line.strip() for line in css.splitlines() if line.strip())
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
     # Plant Filter
-    available_plants = ["All"] + sorted(list(df["plant"].unique()))
+    available_plants = ["All"] + (sorted(list(df["plant"].unique())) if df is not None and not df.empty and "plant" in df.columns else [])
     selected_plants = st.sidebar.multiselect("Select Plant(s)", options=available_plants, default=["All"])
 
     # Line Filter
-    available_lines = ["All"] + sorted(list(df["line"].unique()))
+    available_lines = ["All"] + (sorted(list(df["line"].unique())) if df is not None and not df.empty and "line" in df.columns else [])
     selected_lines = st.sidebar.multiselect("Select Line(s)", options=available_lines, default=["All"])
 
     # Shift Filter
-    available_shifts = ["All"] + sorted(list(df["shift"].unique()))
+    available_shifts = ["All"] + (sorted(list(df["shift"].unique())) if df is not None and not df.empty and "shift" in df.columns else [])
     selected_shifts = st.sidebar.multiselect("Select Shift(s)", options=available_shifts, default=["All"])
 
     # Product Family Filter
-    available_families = ["All"] + sorted(list(df["product_family"].unique()))
+    available_families = ["All"] + (sorted(list(df["product_family"].unique())) if df is not None and not df.empty and "product_family" in df.columns else [])
     selected_families = st.sidebar.multiselect("Product Family", options=available_families, default=["All"])
 
     st.sidebar.divider()
     st.sidebar.caption("⚡ Powered by Snowflake Cortex Analyst & AI")
+
+    return {
+        "date_range": date_range,
+        "plants": selected_plants,
+        "lines": selected_lines,
+        "shifts": selected_shifts,
+        "product_families": selected_families,
+    }
+
+
+def _generate_date_series(start_date: str, end_date: str, num_points: int = 5) -> List[str]:
+    """Generate dynamic x-axis date labels (DAYS, not time) for dashboard charts."""
+    try:
+        s_dt = pd.to_datetime(start_date).date()
+        e_dt = pd.to_datetime(end_date).date()
+    except Exception:
+        e_dt = datetime.date.today()
+        s_dt = e_dt - datetime.timedelta(days=num_points - 1)
+
+    if s_dt > e_dt:
+        s_dt, e_dt = e_dt, s_dt
+
+    # If start_date == end_date, generate num_points days ending on e_dt
+    if s_dt == e_dt:
+        s_dt = e_dt - datetime.timedelta(days=num_points - 1)
+
+    delta_days = (e_dt - s_dt).days
+    if delta_days == 0:
+        date_list = [e_dt] * num_points
+    else:
+        date_list = [
+            s_dt + datetime.timedelta(days=round(i * delta_days / (num_points - 1)))
+            for i in range(num_points)
+        ]
+
+    return [d.strftime("%b %d") for d in date_list]
 
 
 def _render_dash_header(title: str, subtitle: Optional[str], stats: List[dict]):
@@ -98,7 +261,7 @@ def _show(fig: go.Figure, key: str):
 
 
 def _two_line_ticks(labels: List[str]) -> List[str]:
-    """'Jul 06, 12AM' -> 'Jul 06<br>12AM' so tick labels never overlap or get clipped."""
+    """'Jul 06, 2024' -> 'Jul 06<br>2024' so tick labels never overlap or get clipped."""
     return [str(t).replace(", ", "<br>") for t in labels]
 
 
@@ -205,7 +368,12 @@ def render_oee_dashboard(
     line_name: str
 ):
     """Render the OEE Dashboard section sitting above the chat interface."""
-    data = load_dashboard_metrics_from_db(dashboard_name, start_date, end_date, line_name)
+    try:
+        data = load_dashboard_metrics_from_db(dashboard_name, start_date, end_date, line_name)
+    except Exception as db_err:
+        data = {}
+        st.warning(f"Database connection unavailable: {db_err}")
+
     _inject_dashboard_css()
 
     d_lower = (dashboard_name or "").strip().lower()
