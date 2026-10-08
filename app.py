@@ -1,11 +1,13 @@
 """Manufacturing OEE Conversational Analytics Application in Streamlit.
 
 Integrates:
-- Chat Interface
-- Sidebar Filters
+- Chat Interface & Settings Page
+- Sidebar Filters & Settings Controls
 - KPI Cards
 - Cortex Analyst (NLU & Structured Data Querying)
 - Dynamic Visualization Engine (LLM Code Gen -> AST Security Validation -> Restricted Execution -> Plotly Figure)
+- Metric Color Highlighting for Data Tables
+- PDF Export of Conversation with Company Logo & Download Timestamp
 - Developer / Debug Mode
 """
 
@@ -14,13 +16,20 @@ import pandas as pd
 import numpy as np
 import logging
 
-from config import APP_TITLE, APP_ICON
-from data.sample_data import generate_oee_dataset, calculate_aggregated_oee
-from services.cortex_analyst import CortexAnalystService
-from services.cortex_ai import CortexAIService
+from config import APP_TITLE, APP_ICON, DB, ANALYTICS_SCHEMA
+from services.cortex_agent import call_agent, collect_response, tool_results_to_df, render_chart, split_suggestions, deduplicate_paragraphs, format_oee_markdown
 from services.snowflake_connection import get_snowflake_session
-from ui.components import render_sidebar_filters, render_kpi_cards, render_sample_questions
-from visualization.chart_generator import generate_chart
+from services.pdf_generator import generate_conversation_pdf
+from ui.components import render_oee_dashboard, render_sample_questions, style_dataframe_metrics
+from ui.settings_page import render_settings_page
+from services.settings_service import (
+    load_app_settings_from_db,
+    load_suggested_questions_from_db,
+    check_is_admin,
+    load_dashboard_types_from_db,
+    load_production_lines_from_db,
+)
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("oee_streamlit_app")
@@ -44,14 +53,12 @@ def load_dataset():
             # Query active Snowflake session if available
             return snowflake_session.sql("SELECT * FROM OEE_TELEMETRY").to_pandas()
         except Exception as query_err:
-            logger.warning(f"Snowflake table query failed: {query_err}. Using generated telemetry dataset.")
-    return generate_oee_dataset()
+            logger.error(f"Snowflake table query failed: {query_err}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 df_raw = load_dataset()
 
-# Initialize Services
-analyst_service = CortexAnalystService(df_raw)
-cortex_ai_service = CortexAIService()
 
 # Header Section
 st.title(f"{APP_ICON} {APP_TITLE}")
@@ -67,12 +74,8 @@ target_avail = st.sidebar.number_input("Target Availability (%)", min_value=0.0,
 target_perf = st.sidebar.number_input("Target Performance (%)", min_value=0.0, max_value=100.0, value=95.0, step=1.0)
 target_qual = st.sidebar.number_input("Target Quality (%)", min_value=0.0, max_value=100.0, value=99.0, step=1.0)
 
-targets = {
-    "oee": target_oee,
-    "availability": target_avail,
-    "performance": target_perf,
-    "quality": target_qual
-}
+    # Filter Controls
+    f_col1, f_col2, f_col3 = st.columns([1, 1.2, 1])
 
 st.sidebar.divider()
 debug_mode = st.sidebar.toggle("🛠️ Developer / Debug Mode", value=False)

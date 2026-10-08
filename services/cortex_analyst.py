@@ -11,7 +11,6 @@ import pandas as pd
 import numpy as np
 import re
 from typing import Dict, Any, List, Tuple
-from data.sample_data import calculate_aggregated_oee
 
 class CortexAnalystService:
     def __init__(self, df: pd.DataFrame):
@@ -172,27 +171,26 @@ class CortexAnalystService:
     def _handle_summary_kpi_query(self, df: pd.DataFrame, metric_col: str, metric_name: str) -> Tuple[str, pd.DataFrame, str]:
         sql_query = "SELECT AVG(oee) AS oee, AVG(availability) AS availability, AVG(performance) AS performance, AVG(quality) AS quality, SUM(downtime_hours) AS downtime_hours FROM oee_telemetry"
 
-        agg_oee = calculate_aggregated_oee(df)
+        oee_val = round(float(df["oee"].mean()), 2) if df is not None and not df.empty and "oee" in df.columns else 0.0
+        avail_val = round(float(df["availability"].mean()), 2) if df is not None and not df.empty and "availability" in df.columns else 0.0
+        perf_val = round(float(df["performance"].mean()), 2) if df is not None and not df.empty and "performance" in df.columns else 0.0
+        qual_val = round(float(df["quality"].mean()), 2) if df is not None and not df.empty and "quality" in df.columns else 0.0
+        dt_val = round(float(df["downtime_hours"].sum()), 1) if df is not None and not df.empty and "downtime_hours" in df.columns else 0.0
 
         summary_df = pd.DataFrame([{
-            "OEE (%)": agg_oee["oee"],
-            "Availability (%)": agg_oee["availability"],
-            "Performance (%)": agg_oee["performance"],
-            "Quality (%)": agg_oee["quality"],
-            "Total Downtime (hrs)": agg_oee["total_downtime_hours"],
-            "Total Units": agg_oee["total_units"],
-            "Good Units": agg_oee["good_units"],
-            "Defective Units": agg_oee["reject_units"]
+            "OEE (%)": oee_val,
+            "Availability (%)": avail_val,
+            "Performance (%)": perf_val,
+            "Quality (%)": qual_val,
+            "Total Downtime (hrs)": dt_val
         }])
 
         summary = (
             f"### 🏭 Overall Plant OEE Performance Summary\n\n"
-            f"- **Composite OEE**: **{agg_oee['oee']}%** (World Class Benchmark is 85%).\n"
-            f"  - **Availability Factor**: **{agg_oee['availability']}%** (Target: 90%)\n"
-            f"  - **Performance Factor**: **{agg_oee['performance']}%** (Target: 95%)\n"
-            f"  - **Quality Factor**: **{agg_oee['quality']}%** (Target: 99%)\n"
-            f"- **Downtime Impact**: Total cumulative equipment downtime is **{agg_oee['total_downtime_hours']} hours**.\n"
-            f"- **Production Totals**: Produced **{agg_oee['good_units']:,}** good units out of **{agg_oee['total_units']:,}** total units (**{agg_oee['reject_units']:,}** scrap units).\n\n"
-            f"**Operational Advice**: Focus bottleneck elimination on Availability loss due to downtime hours to boost overall site OEE."
+            f"- **Composite OEE**: **{oee_val}%**\n"
+            f"  - **Availability Factor**: **{avail_val}%**\n"
+            f"  - **Performance Factor**: **{perf_val}%**\n"
+            f"  - **Quality Factor**: **{qual_val}%**\n"
+            f"- **Downtime Impact**: Total cumulative equipment downtime is **{dt_val} hours**.\n"
         )
         return sql_query, summary_df, summary
